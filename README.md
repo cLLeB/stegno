@@ -13,14 +13,27 @@ data inside ordinary files, and (in later phases) detect it.
 > Standalone project. It borrows ideas from a sibling project's LSB module but
 > shares no code or dependency with it.
 
-## Status — Phase 0 (Foundation + LSB image)
+## Status — Phases 0–1
 
 | Component | State |
 |---|---|
-| `stegno-core` engine | ✅ Argon2id + AES-256-GCM, versioned framing, pluggable `Method` trait, `lsb_image` |
-| Tests | ✅ 25 (unit + property + parity) |
+| `stegno-core` engine | ✅ Argon2id + AES-256-GCM, versioned framing, pluggable `Method` trait |
+| Image methods | ✅ `lsb_image`, `lsb_seeded`, `lsb_matching`, `edge_adaptive`, `pvd` |
+| Key-seeded embedding | ✅ deterministic xoshiro256++ permutation keyed by passphrase |
+| Plausible-deniability decoy slot | ✅ `embed_with_decoy` — real + decoy in disjoint keyed regions |
+| Tests | ✅ 66 (unit + property + parity + deniability) |
 | Tauri desktop | ✅ Hide/Extract UI wired to the core |
 | Native Android | ✅ Compose UI + UniFFI bindings + per-ABI `.so` |
+
+### Methods
+
+| id | technique | notes |
+|---|---|---|
+| `lsb_image` | sequential LSB replacement | Phase-0 baseline, max capacity, detectable |
+| `lsb_seeded` | key-seeded LSB replacement | payload scattered by a passphrase-keyed permutation |
+| `lsb_matching` | ±1 LSB matching | removes the pairs-of-values / chi-square signature |
+| `edge_adaptive` | edge-first LSB | fills busy/edge pixels first (order invariant under LSB) |
+| `pvd` | pixel-value differencing | variable bits/pair by local difference; reversible |
 
 ### How it works
 
@@ -81,7 +94,7 @@ cd android && ./gradlew assembleDebug
 | Phase | Theme |
 |---|---|
 | **0** ✅ | Foundation + LSB image |
-| 1 | Spatial image suite (LSB-matching, PVD, edge-adaptive, key-seeded embedding) + plausible-deniability decoy slot |
+| **1** ✅ | Spatial image suite (LSB-matching, PVD, edge-adaptive, key-seeded embedding) + plausible-deniability decoy slot |
 | 2 | Text & file-structure (zero-width Unicode, whitespace, append/polyglot, EXIF/tEXt) |
 | 3 | Audio (WAV LSB, echo hiding, spread-spectrum) |
 | 4 | Transform-domain image (JPEG DCT: JSteg/F5/OutGuess, DWT) |
@@ -94,8 +107,13 @@ sockets in the Android sandbox); full video steganography (codec-heavy).
 ## Security notes
 
 - Argon2id makes brute force expensive but can't rescue a weak passphrase.
-- Phase-0 LSB is statistically **detectable**; detection resistance arrives with
-  key-seeded and adaptive methods in later phases.
+- `lsb_image` (sequential) is statistically **detectable**. `lsb_seeded`,
+  `lsb_matching`, and `edge_adaptive` raise the bar (no sequential structure, no
+  pairs-of-values artefact, embedding biased into texture) but are **not**
+  provably undetectable — adaptive/transform-domain methods come in later phases.
+- The decoy slot gives plausible deniability *only if you actually embed a
+  decoy*: the real slot is then indistinguishable from unused LSB noise without
+  the real passphrase.
 - Best-effort software, no warranty.
 
 ## License
