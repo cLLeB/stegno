@@ -192,7 +192,11 @@ fn revealed_from_inner(inner: &[u8]) -> Result<Revealed, StegnoError> {
 /// Try both decoy regions; return the first that decrypts under `passphrase`.
 /// Lenient: a coincidental header in the wrong region is skipped, not fatal.
 fn try_decoy_slots(stego: &[u8], passphrase: &str) -> Result<Option<Revealed>, StegnoError> {
-    let img = image_io::decode_rgba(stego)?;
+    // Decoy slots are an image (LSB) feature; a non-image cover simply has none.
+    let img = match image_io::decode_rgba(stego) {
+        Ok(img) => img,
+        Err(_) => return Ok(None),
+    };
     for slot in [Slot::Primary, Slot::Decoy] {
         let key = derive_seed(passphrase, slot);
         let order = methods::lsb_common::decoy_region_order(img.width, img.height, slot, &key);

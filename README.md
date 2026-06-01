@@ -13,27 +13,32 @@ data inside ordinary files, and (in later phases) detect it.
 > Standalone project. It borrows ideas from a sibling project's LSB module but
 > shares no code or dependency with it.
 
-## Status — Phases 0–1
+## Status — Phases 0–2
 
 | Component | State |
 |---|---|
 | `stegno-core` engine | ✅ Argon2id + AES-256-GCM, versioned framing, pluggable `Method` trait |
 | Image methods | ✅ `lsb_image`, `lsb_seeded`, `lsb_matching`, `edge_adaptive`, `pvd` |
+| Text / file methods | ✅ `zero_width`, `whitespace`, `append_eof`, `png_text` |
 | Key-seeded embedding | ✅ deterministic xoshiro256++ permutation keyed by passphrase |
 | Plausible-deniability decoy slot | ✅ `embed_with_decoy` — real + decoy in disjoint keyed regions |
-| Tests | ✅ 66 (unit + property + parity + deniability) |
+| Tests | ✅ 95 (unit + property + parity + deniability + text/file) |
 | Tauri desktop | ✅ Hide/Extract UI wired to the core |
 | Native Android | ✅ Compose UI + UniFFI bindings + per-ABI `.so` |
 
 ### Methods
 
-| id | technique | notes |
-|---|---|---|
-| `lsb_image` | sequential LSB replacement | Phase-0 baseline, max capacity, detectable |
-| `lsb_seeded` | key-seeded LSB replacement | payload scattered by a passphrase-keyed permutation |
-| `lsb_matching` | ±1 LSB matching | removes the pairs-of-values / chi-square signature |
-| `edge_adaptive` | edge-first LSB | fills busy/edge pixels first (order invariant under LSB) |
-| `pvd` | pixel-value differencing | variable bits/pair by local difference; reversible |
+| id | media | technique | notes |
+|---|---|---|---|
+| `lsb_image` | image | sequential LSB replacement | Phase-0 baseline, max capacity, detectable |
+| `lsb_seeded` | image | key-seeded LSB replacement | payload scattered by a passphrase-keyed permutation |
+| `lsb_matching` | image | ±1 LSB matching | removes the pairs-of-values / chi-square signature |
+| `edge_adaptive` | image | edge-first LSB | fills busy/edge pixels first (order invariant under LSB) |
+| `pvd` | image | pixel-value differencing | variable bits/pair by local difference; reversible |
+| `zero_width` | text | zero-width Unicode | invisible U+200B/U+200C carry bits inside normal text |
+| `whitespace` | text | trailing whitespace | space=0 / tab=1 run after the text (SNOW-style) |
+| `append_eof` | file | append after EOF | data after the file's end marker; any cover, still opens |
+| `png_text` | image | PNG metadata chunk | frame stored in a private `stEg` chunk; pixels untouched |
 
 ### How it works
 
@@ -95,7 +100,7 @@ cd android && ./gradlew assembleDebug
 |---|---|
 | **0** ✅ | Foundation + LSB image |
 | **1** ✅ | Spatial image suite (LSB-matching, PVD, edge-adaptive, key-seeded embedding) + plausible-deniability decoy slot |
-| 2 | Text & file-structure (zero-width Unicode, whitespace, append/polyglot, EXIF/tEXt) |
+| **2** ✅ | Text & file-structure (zero-width Unicode, whitespace, append-after-EOF, PNG metadata) |
 | 3 | Audio (WAV LSB, echo hiding, spread-spectrum) |
 | 4 | Transform-domain image (JPEG DCT: JSteg/F5/OutGuess, DWT) |
 | 5 | Detection / steganalysis (chi-square, RS, sample-pair, PSNR/SSIM) |
