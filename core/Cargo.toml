@@ -1,0 +1,30 @@
+[package]
+name = "stegno-core"
+version = "0.1.0"
+edition = "2021"
+description = "Offline steganography engine — crypto, payload framing, pluggable methods."
+license = "MIT"
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+name = "stegno_core"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["cli"]
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "webp", "gif"] }
+aes-gcm = "0.10"
+argon2 = "0.5"
+getrandom = "0.2"
+thiserror = "2"
+uniffi = { version = "0.28" }
+
+[dev-dependencies]
+proptest = "1"
+
+[features]
+default = []
+cli = ["uniffi/cli"]

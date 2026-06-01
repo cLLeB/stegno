@@ -1,0 +1,154 @@
+//! Payload framing.
+//!
+//! Two layers:
+//!   * inner  — `Secret` (text or named file) serialized to bytes, then encrypted.
+//!   * outer  — a versioned frame written into the cover's LSB stream.
+//!
+//! Outer frame: `MAGIC(4) | version(1) | flags(1) | slot(1) | len(u32 BE) | body`.
+
+use crate::crypto::CRYPTO_OVERHEAD;
+use crate::StegnoError;
+
+const MAGIC: [u8; 4] = *b"STG0";
+const VERSION: u8 = 1;
+const HDR_LEN: usize = 4 + 1 + 1 + 1 + 4; // magic + version + flags + slot + len
+
+/// A secret the user wants to hide.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum Secret {
+    Text { text: String },
+    File { name: String, bytes: Vec<u8> },
+}
+
+/// The result of an extraction.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum Revealed {
+    None,
+    Text { text: String },
+    File { name: String, bytes: Vec<u8> },
+}
+
+/// Bytes added on top of the encrypted secret by framing + crypto.
+/// Used by methods to compute usable capacity.
+pub fn overhead() -> usize {
+    HDR_LEN + CRYPTO_OVERHEAD + 1 // +1 for the inner type byte
+}
+
+pub fn header_len() -> usize {
+    HDR_LEN
+}
+
+/// Serialize a `Secret` to inner plaintext bytes (pre-encryption).
+pub fn serialize_secret(s: &Secret) -> Vec<u8> {
+    match s {
+        Secret::Text { text } => {
+            let mut v = vec![0x00u8];
+            v.extend_from_slice(text.as_bytes());
+            v
+        }
+        Secret::File { name, bytes } => {
+            let nb = name.as_bytes();
+            let mut v = vec![0x01u8];
+            v.extend_from_slice(&(nb.len() as u16).to_be_bytes());
+            v.extend_from_slice(nb);
+            v.extend_from_slice(bytes);
+            v
+        }
+    }
+}
+
+/// Parse inner plaintext bytes back into a `Secret`.
+pub fn deserialize_secret(inner: &[u8]) -> Result<Secret, StegnoError> {
+    let kind = *inner.first().ok_or(StegnoError::CorruptPayload)?;
+    match kind {
+        0x00 => Ok(Secret::Text {
+            text: String::from_utf8(inner[1..].to_vec())
+                .map_err(|_| StegnoError::CorruptPayload)?,
+        }),
+        0x01 => {
+            if inner.len() < 3 {
+                return Err(StegnoError::CorruptPayload);
+            }
+            let nlen = u16::from_be_bytes([inner[1], inner[2]]) as usize;
+            if inner.len() < 3 + nlen {
+                return Err(StegnoError::CorruptPayload);
+            }
+            let name = String::from_utf8(inner[3..3 + nlen].to_vec())
+                .map_err(|_| StegnoError::CorruptPayload)?;
+            Ok(Secret::File {
+                name,
+                bytes: inner[3 + nlen..].to_vec(),
+            })
+        }
+        _ => Err(StegnoError::CorruptPayload),
+    }
+}
+
+/// Wrap a body (the sealed blob) in the outer frame.
+pub fn frame(body: &[u8]) -> Vec<u8> {
+    let mut v = Vec::with_capacity(HDR_LEN + body.len());
+    v.extend_from_slice(&MAGIC);
+    v.push(VERSION);
+    v.push(0); // flags (reserved)
+    v.push(0); // slot_type: 0 = primary
+    v.extend_from_slice(&(body.len() as u32).to_be_bytes());
+    v.extend_from_slice(body);
+    v
+}
+
+/// Read the outer frame from a byte stream.
+///
+/// `Ok(None)` if MAGIC is absent (no hidden data). `Err(CorruptPayload)` if the
+/// header is present but the declared length runs past the buffer.
+pub fn unframe(stream: &[u8]) -> Result<Option<Vec<u8>>, StegnoError> {
+    if stream.len() < HDR_LEN || stream[..4] != MAGIC {
+        return Ok(None);
+    }
+    let len = u32::from_be_bytes([stream[7], stream[8], stream[9], stream[10]]) as usize;
+    let end = HDR_LEN + len;
+    if stream.len() < end {
+        return Err(StegnoError::CorruptPayload);
+    }
+    Ok(Some(stream[HDR_LEN..end].to_vec()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_secret_roundtrips_inner() {
+        let s = Secret::Text { text: "hi".into() };
+        let inner = serialize_secret(&s);
+        assert_eq!(deserialize_secret(&inner).unwrap(), s);
+    }
+
+    #[test]
+    fn file_secret_roundtrips_inner() {
+        let s = Secret::File {
+            name: "a.bin".into(),
+            bytes: vec![1, 2, 3],
+        };
+        let inner = serialize_secret(&s);
+        assert_eq!(deserialize_secret(&inner).unwrap(), s);
+    }
+
+    #[test]
+    fn frame_unframe_roundtrips() {
+        let body = vec![9u8; 40];
+        let framed = frame(&body);
+        assert_eq!(unframe(&framed).unwrap(), Some(body));
+    }
+
+    #[test]
+    fn unframe_rejects_bad_magic() {
+        assert_eq!(unframe(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).unwrap(), None);
+    }
+
+    #[test]
+    fn unframe_detects_truncation() {
+        let mut framed = frame(&vec![7u8; 20]);
+        framed.truncate(HDR_LEN + 5);
+        assert!(matches!(unframe(&framed), Err(StegnoError::CorruptPayload)));
+    }
+}
