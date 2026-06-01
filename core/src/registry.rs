@@ -6,6 +6,8 @@ use crate::methods::lsb_image::LsbImage;
 use crate::methods::lsb_matching::LsbMatching;
 use crate::methods::lsb_seeded::LsbSeeded;
 use crate::methods::pvd::Pvd;
+use crate::methods::whitespace::Whitespace;
+use crate::methods::zero_width::ZeroWidth;
 
 /// All methods the engine knows about.
 pub fn registry() -> Vec<Box<dyn Method>> {
@@ -15,6 +17,8 @@ pub fn registry() -> Vec<Box<dyn Method>> {
         Box::new(LsbMatching),
         Box::new(EdgeAdaptive),
         Box::new(Pvd),
+        Box::new(ZeroWidth),
+        Box::new(Whitespace),
     ]
 }
 
