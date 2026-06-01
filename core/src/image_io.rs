@@ -8,6 +8,7 @@ use image::{ExtendedColorType, ImageEncoder, ImageReader};
 use std::io::Cursor;
 
 /// A decoded RGBA8 image, row-major.
+#[derive(Clone)]
 pub struct RgbaImage {
     pub width: u32,
     pub height: u32,

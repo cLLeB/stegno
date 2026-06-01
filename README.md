@@ -13,7 +13,7 @@ data inside ordinary files, and (in later phases) detect it.
 > Standalone project. It borrows ideas from a sibling project's LSB module but
 > shares no code or dependency with it.
 
-## Status — Phases 0–4
+## Status — Phases 0–5
 
 | Component | State |
 |---|---|
@@ -22,9 +22,10 @@ data inside ordinary files, and (in later phases) detect it.
 | Transform-domain | ✅ `dwt_haar` (reversible integer Haar detail-coefficient LSB) |
 | Text / file methods | ✅ `zero_width`, `whitespace`, `append_eof`, `png_text` |
 | Audio methods | ✅ `wav_lsb` (bit-exact, key-seeded) |
+| Steganalysis / quality | ✅ `quality` (MSE/PSNR/SSIM), `detect_lsb` (chi-square + RS) |
 | Key-seeded embedding | ✅ deterministic xoshiro256++ permutation keyed by passphrase |
 | Plausible-deniability decoy slot | ✅ `embed_with_decoy` — real + decoy in disjoint keyed regions |
-| Tests | ✅ 112 (unit + property + parity + deniability + text/file + audio) |
+| Tests | ✅ 122 (unit + property + parity + deniability + text/file + audio + analysis) |
 | Tauri desktop | ✅ Hide/Extract UI wired to the core |
 | Native Android | ✅ Compose UI + UniFFI bindings + per-ABI `.so` |
 
@@ -107,7 +108,7 @@ cd android && ./gradlew assembleDebug
 | **2** ✅ | Text & file-structure (zero-width Unicode, whitespace, append-after-EOF, PNG metadata) |
 | **3** ◑ | Audio — WAV LSB ✅. Echo hiding & spread-spectrum deferred (see note) |
 | **4** ◑ | Transform-domain — reversible Haar-DWT ✅. JPEG DCT (JSteg/F5/OutGuess) deferred (see note) |
-| 5 | Detection / steganalysis (chi-square, RS, sample-pair, PSNR/SSIM) |
+| **5** ✅ | Detection / steganalysis — chi-square, RS, PSNR/SSIM/MSE |
 | 6 | Adaptive (HUGO/WOW/S-UNIWARD) + deep-learning + generative LLM text |
 
 **Out of scope** (platform-incompatible): network covert channels (no raw

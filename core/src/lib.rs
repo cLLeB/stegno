@@ -4,6 +4,7 @@
 //! app via UniFFI. Methods operate on already-encrypted, already-framed bytes,
 //! so every technique inherits identical crypto for free.
 
+pub mod analysis;
 pub mod crypto;
 pub mod image_io;
 pub mod method;
@@ -131,6 +132,52 @@ pub fn decoy_capacity(cover: Vec<u8>) -> Result<u64, StegnoError> {
     Ok(methods::lsb_common::decoy_slot_capacity_bytes(
         img.width, img.height,
     ))
+}
+
+/// Image-quality comparison between a cover and its stego version.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct QualityReport {
+    /// Mean squared error over R/G/B (0 = identical).
+    pub mse: f64,
+    /// Peak signal-to-noise ratio in dB (higher = closer; ∞ for identical).
+    pub psnr_db: f64,
+    /// Structural similarity in [0,1] (1 = identical).
+    pub ssim: f64,
+}
+
+/// How suspicious a single image looks for LSB steganography.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct DetectionReport {
+    /// Westfeld chi-square probability of LSB embedding, [0,1] (higher = more
+    /// suspicious).
+    pub chi_square_p: f64,
+    /// RS regularity gap (R−S)/(R+S); a *smaller* value is more suspicious.
+    pub rs_regularity_gap: f64,
+}
+
+/// Compare a cover and its stego image. Both must decode and share dimensions.
+#[uniffi::export]
+pub fn quality(cover: Vec<u8>, stego: Vec<u8>) -> Result<QualityReport, StegnoError> {
+    let a = image_io::decode_rgba(&cover)?;
+    let b = image_io::decode_rgba(&stego)?;
+    if a.width != b.width || a.height != b.height {
+        return Err(StegnoError::Internal("images differ in size".into()));
+    }
+    Ok(QualityReport {
+        mse: analysis::mse(&a, &b),
+        psnr_db: analysis::psnr(&a, &b),
+        ssim: analysis::ssim(&a, &b),
+    })
+}
+
+/// Run LSB steganalysis on a single image.
+#[uniffi::export]
+pub fn detect_lsb(image: Vec<u8>) -> Result<DetectionReport, StegnoError> {
+    let img = image_io::decode_rgba(&image)?;
+    Ok(DetectionReport {
+        chi_square_p: analysis::chi_square_lsb(&img),
+        rs_regularity_gap: analysis::rs_regularity_gap(&img),
+    })
 }
 
 /// Serialize, encrypt, and frame a secret — the layers above every `Method`.
