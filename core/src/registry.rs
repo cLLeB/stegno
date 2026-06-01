@@ -5,6 +5,7 @@ use crate::methods::edge_adaptive::EdgeAdaptive;
 use crate::methods::lsb_image::LsbImage;
 use crate::methods::lsb_matching::LsbMatching;
 use crate::methods::lsb_seeded::LsbSeeded;
+use crate::methods::pvd::Pvd;
 
 /// All methods the engine knows about.
 pub fn registry() -> Vec<Box<dyn Method>> {
@@ -13,6 +14,7 @@ pub fn registry() -> Vec<Box<dyn Method>> {
         Box::new(LsbSeeded),
         Box::new(LsbMatching),
         Box::new(EdgeAdaptive),
+        Box::new(Pvd),
     ]
 }
 
