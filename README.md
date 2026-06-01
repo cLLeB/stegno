@@ -13,17 +13,18 @@ data inside ordinary files, and (in later phases) detect it.
 > Standalone project. It borrows ideas from a sibling project's LSB module but
 > shares no code or dependency with it.
 
-## Status — Phases 0–3
+## Status — Phases 0–4
 
 | Component | State |
 |---|---|
 | `stegno-core` engine | ✅ Argon2id + AES-256-GCM, versioned framing, pluggable `Method` trait |
 | Image methods | ✅ `lsb_image`, `lsb_seeded`, `lsb_matching`, `edge_adaptive`, `pvd` |
+| Transform-domain | ✅ `dwt_haar` (reversible integer Haar detail-coefficient LSB) |
 | Text / file methods | ✅ `zero_width`, `whitespace`, `append_eof`, `png_text` |
 | Audio methods | ✅ `wav_lsb` (bit-exact, key-seeded) |
 | Key-seeded embedding | ✅ deterministic xoshiro256++ permutation keyed by passphrase |
 | Plausible-deniability decoy slot | ✅ `embed_with_decoy` — real + decoy in disjoint keyed regions |
-| Tests | ✅ 100 (unit + property + parity + deniability + text/file + audio) |
+| Tests | ✅ 112 (unit + property + parity + deniability + text/file + audio) |
 | Tauri desktop | ✅ Hide/Extract UI wired to the core |
 | Native Android | ✅ Compose UI + UniFFI bindings + per-ABI `.so` |
 
@@ -41,6 +42,7 @@ data inside ordinary files, and (in later phases) detect it.
 | `append_eof` | file | append after EOF | data after the file's end marker; any cover, still opens |
 | `png_text` | image | PNG metadata chunk | frame stored in a private `stEg` chunk; pixels untouched |
 | `wav_lsb` | audio | WAV/PCM LSB | key-seeded LSB in sample low-bytes; 8/16/24/32-bit + float |
+| `dwt_haar` | image | Haar wavelet detail LSB | reversible integer S-transform; embeds in detail band; overflow-safe |
 
 ### How it works
 
@@ -104,7 +106,7 @@ cd android && ./gradlew assembleDebug
 | **1** ✅ | Spatial image suite (LSB-matching, PVD, edge-adaptive, key-seeded embedding) + plausible-deniability decoy slot |
 | **2** ✅ | Text & file-structure (zero-width Unicode, whitespace, append-after-EOF, PNG metadata) |
 | **3** ◑ | Audio — WAV LSB ✅. Echo hiding & spread-spectrum deferred (see note) |
-| 4 | Transform-domain image (JPEG DCT: JSteg/F5/OutGuess, DWT) |
+| **4** ◑ | Transform-domain — reversible Haar-DWT ✅. JPEG DCT (JSteg/F5/OutGuess) deferred (see note) |
 | 5 | Detection / steganalysis (chi-square, RS, sample-pair, PSNR/SSIM) |
 | 6 | Adaptive (HUGO/WOW/S-UNIWARD) + deep-learning + generative LLM text |
 
@@ -119,6 +121,12 @@ decryption outright, so these lossy techniques can't carry our payload reliably.
 They'd require either dropping authentication or adding heavy error-correcting
 codes — revisited only if a concrete need appears. `wav_lsb` is bit-exact and
 covers the practical audio case.
+
+**Deferred — needs coefficient-level JPEG I/O:** JSteg / F5 / OutGuess embed in
+quantised JPEG DCT coefficients, which requires a codec that exposes and
+re-encodes those coefficients losslessly (no mainstream pure-Rust crate does).
+The bit-exact, overflow-safe `dwt_haar` covers transform-domain embedding for
+now; a true JPEG-DCT method can slot in as another `Method` later.
 
 ## Security notes
 

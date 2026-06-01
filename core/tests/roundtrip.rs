@@ -32,13 +32,14 @@ fn textured(w: u32, h: u32) -> Vec<u8> {
     .unwrap()
 }
 
-/// Every registered Phase-0/1 image method.
-const IMAGE_METHODS: [&str; 5] = [
+/// Every registered bit-exact image method (Phases 0/1/4).
+const IMAGE_METHODS: [&str; 6] = [
     "lsb_image",
     "lsb_seeded",
     "lsb_matching",
     "edge_adaptive",
     "pvd",
+    "dwt_haar",
 ];
 
 #[test]
@@ -208,18 +209,7 @@ proptest! {
     #[test]
     fn pvd_random_cover_roundtrips(seed in any::<u64>()) {
         // A pseudo-random cover (xorshift) stresses every range and boundary.
-        let mut pixels = vec![0u8; 96 * 96 * 4];
-        let mut s = seed | 1;
-        for px in pixels.chunks_exact_mut(4) {
-            s ^= s << 13;
-            s ^= s >> 7;
-            s ^= s << 17;
-            px[0] = s as u8;
-            px[1] = (s >> 8) as u8;
-            px[2] = (s >> 16) as u8;
-            px[3] = 255;
-        }
-        let cover = encode_png(&RgbaImage { width: 96, height: 96, pixels }).unwrap();
+        let cover = random_cover(96, 96, seed);
         let stego = embed("pvd".into(), cover,
             Secret::Text { text: "reversible".into() }, "k".into()).unwrap();
         prop_assert_eq!(
@@ -227,4 +217,32 @@ proptest! {
             Revealed::Text { text: "reversible".into() }
         );
     }
+
+    // Haar-DWT detail embedding: random covers stress the overflow skip rule.
+    #[test]
+    fn dwt_random_cover_roundtrips(seed in any::<u64>()) {
+        let cover = random_cover(96, 96, seed);
+        let stego = embed("dwt_haar".into(), cover,
+            Secret::Text { text: "wavelet".into() }, "k".into()).unwrap();
+        prop_assert_eq!(
+            extract("dwt_haar".into(), stego, "k".into()).unwrap(),
+            Revealed::Text { text: "wavelet".into() }
+        );
+    }
+}
+
+/// A pseudo-random (xorshift) RGBA PNG cover from a seed.
+fn random_cover(w: u32, h: u32, seed: u64) -> Vec<u8> {
+    let mut pixels = vec![0u8; (w * h * 4) as usize];
+    let mut s = seed | 1;
+    for px in pixels.chunks_exact_mut(4) {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        px[0] = s as u8;
+        px[1] = (s >> 8) as u8;
+        px[2] = (s >> 16) as u8;
+        px[3] = 255;
+    }
+    encode_png(&RgbaImage { width: w, height: h, pixels }).unwrap()
 }

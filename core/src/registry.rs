@@ -2,6 +2,7 @@
 
 use crate::method::Method;
 use crate::methods::append_eof::AppendEof;
+use crate::methods::dwt_haar::DwtHaar;
 use crate::methods::edge_adaptive::EdgeAdaptive;
 use crate::methods::lsb_image::LsbImage;
 use crate::methods::lsb_matching::LsbMatching;
@@ -25,6 +26,7 @@ pub fn registry() -> Vec<Box<dyn Method>> {
         Box::new(AppendEof),
         Box::new(PngText),
         Box::new(WavLsb),
+        Box::new(DwtHaar),
     ]
 }
 
