@@ -32,14 +32,15 @@ fn textured(w: u32, h: u32) -> Vec<u8> {
     .unwrap()
 }
 
-/// Every registered bit-exact image method (Phases 0/1/4).
-const IMAGE_METHODS: [&str; 6] = [
+/// Every registered bit-exact image method (Phases 0/1/4/6).
+const IMAGE_METHODS: [&str; 7] = [
     "lsb_image",
     "lsb_seeded",
     "lsb_matching",
     "edge_adaptive",
     "pvd",
     "dwt_haar",
+    "adaptive_cost",
 ];
 
 #[test]

@@ -24,6 +24,28 @@ fn phase2_methods_are_registered() {
 }
 
 #[test]
+fn mimic_words_end_to_end() {
+    // Generative: cover is ignored; output is fresh word-salad text.
+    let stego = embed(
+        "mimic_words".into(),
+        b"ignored cover".to_vec(),
+        Secret::Text {
+            text: "the eagle lands at dawn".into(),
+        },
+        "pw".into(),
+    )
+    .unwrap();
+    // Output should be human-readable ASCII words.
+    assert!(String::from_utf8(stego.clone()).unwrap().contains(' '));
+    assert_eq!(
+        extract("mimic_words".into(), stego, "pw".into()).unwrap(),
+        Revealed::Text {
+            text: "the eagle lands at dawn".into()
+        }
+    );
+}
+
+#[test]
 fn zero_width_end_to_end() {
     let stego = embed(
         "zero_width".into(),

@@ -13,19 +13,21 @@ data inside ordinary files, and (in later phases) detect it.
 > Standalone project. It borrows ideas from a sibling project's LSB module but
 > shares no code or dependency with it.
 
-## Status — Phases 0–5
+## Status — Phases 0–6
 
 | Component | State |
 |---|---|
 | `stegno-core` engine | ✅ Argon2id + AES-256-GCM, versioned framing, pluggable `Method` trait |
 | Image methods | ✅ `lsb_image`, `lsb_seeded`, `lsb_matching`, `edge_adaptive`, `pvd` |
 | Transform-domain | ✅ `dwt_haar` (reversible integer Haar detail-coefficient LSB) |
+| Content-adaptive | ✅ `adaptive_cost` (UNIWARD-flavored directional-residual cost) |
 | Text / file methods | ✅ `zero_width`, `whitespace`, `append_eof`, `png_text` |
+| Generative text | ✅ `mimic_words` (offline wordlist mimicry) |
 | Audio methods | ✅ `wav_lsb` (bit-exact, key-seeded) |
 | Steganalysis / quality | ✅ `quality` (MSE/PSNR/SSIM), `detect_lsb` (chi-square + RS) |
 | Key-seeded embedding | ✅ deterministic xoshiro256++ permutation keyed by passphrase |
 | Plausible-deniability decoy slot | ✅ `embed_with_decoy` — real + decoy in disjoint keyed regions |
-| Tests | ✅ 122 (unit + property + parity + deniability + text/file + audio + analysis) |
+| Tests | ✅ 132 (unit + property + parity + deniability + text/file + audio + analysis) |
 | Tauri desktop | ✅ Hide/Extract UI wired to the core |
 | Native Android | ✅ Compose UI + UniFFI bindings + per-ABI `.so` |
 
@@ -44,6 +46,8 @@ data inside ordinary files, and (in later phases) detect it.
 | `png_text` | image | PNG metadata chunk | frame stored in a private `stEg` chunk; pixels untouched |
 | `wav_lsb` | audio | WAV/PCM LSB | key-seeded LSB in sample low-bytes; 8/16/24/32-bit + float |
 | `dwt_haar` | image | Haar wavelet detail LSB | reversible integer S-transform; embeds in detail band; overflow-safe |
+| `adaptive_cost` | image | content-adaptive cost | directional 2nd-order residual cost; fills cheapest (textured) first |
+| `mimic_words` | text | generative wordlist mimicry | emits word-salad encoding the payload; cover ignored |
 
 ### How it works
 
@@ -109,7 +113,7 @@ cd android && ./gradlew assembleDebug
 | **3** ◑ | Audio — WAV LSB ✅. Echo hiding & spread-spectrum deferred (see note) |
 | **4** ◑ | Transform-domain — reversible Haar-DWT ✅. JPEG DCT (JSteg/F5/OutGuess) deferred (see note) |
 | **5** ✅ | Detection / steganalysis — chi-square, RS, PSNR/SSIM/MSE |
-| 6 | Adaptive (HUGO/WOW/S-UNIWARD) + deep-learning + generative LLM text |
+| **6** ◑ | Adaptive `adaptive_cost` ✅ + generative `mimic_words` ✅. STC matrix coding, deep-learning, and LLM text deferred (see note) |
 
 **Out of scope** (platform-incompatible): network covert channels (no raw
 sockets in the Android sandbox); full video steganography (codec-heavy).
@@ -128,6 +132,13 @@ quantised JPEG DCT coefficients, which requires a codec that exposes and
 re-encodes those coefficients losslessly (no mainstream pure-Rust crate does).
 The bit-exact, overflow-safe `dwt_haar` covers transform-domain embedding for
 now; a true JPEG-DCT method can slot in as another `Method` later.
+
+**Deferred — research-grade:** full HUGO/WOW/S-UNIWARD use syndrome-trellis
+codes (STC) to minimise *total* distortion for a payload; `adaptive_cost`
+implements the cost model and cost-ordered embedding but not STC matrix coding.
+Deep-learning hiding (StegaStamp) and LLM-driven generative text need bundled
+neural models and are out of scope for an offline, dependency-light crate;
+`mimic_words` provides the classic model-free generative alternative.
 
 ## Security notes
 

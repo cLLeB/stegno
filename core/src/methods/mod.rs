@@ -1,10 +1,12 @@
 //! Method implementations. Each phase adds modules here and registers them in
 //! `crate::registry`.
 
+pub mod adaptive_cost;
 pub mod append_eof;
 pub mod bitvec;
 pub mod dwt_haar;
 pub mod edge_adaptive;
+pub mod mimic_words;
 pub mod lsb_common;
 pub mod lsb_image;
 pub mod lsb_matching;
