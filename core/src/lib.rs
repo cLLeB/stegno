@@ -13,7 +13,9 @@ pub mod prng;
 pub mod registry;
 pub mod seed;
 
+use method::{EmbedOpts, ExtractOpts};
 use payload::{Revealed, Secret};
+use seed::{derive_seed, Slot};
 
 uniffi::setup_scaffolding!();
 
@@ -78,7 +80,10 @@ pub fn embed(
     let sealed =
         crypto::seal(&inner, &passphrase).map_err(|_| StegnoError::Internal("seal".into()))?;
     let framed = payload::frame(&sealed);
-    m.embed(&cover, &framed, &method::EmbedOpts::default())
+    let opts = EmbedOpts {
+        seed: Some(derive_seed(&passphrase, Slot::Primary)),
+    };
+    m.embed(&cover, &framed, &opts)
 }
 
 /// Extract and decrypt a hidden payload from `stego`.
@@ -90,7 +95,10 @@ pub fn extract(
 ) -> Result<Revealed, StegnoError> {
     let m = registry::lookup(&method_id)
         .ok_or_else(|| StegnoError::Internal("unknown method".into()))?;
-    let stream = match m.extract(&stego)? {
+    let xopts = ExtractOpts {
+        seed: Some(derive_seed(&passphrase, Slot::Primary)),
+    };
+    let stream = match m.extract(&stego, &xopts)? {
         Some(s) => s,
         None => return Ok(Revealed::None),
     };

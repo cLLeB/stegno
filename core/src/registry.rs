@@ -2,10 +2,11 @@
 
 use crate::method::Method;
 use crate::methods::lsb_image::LsbImage;
+use crate::methods::lsb_seeded::LsbSeeded;
 
 /// All methods the engine knows about.
 pub fn registry() -> Vec<Box<dyn Method>> {
-    vec![Box::new(LsbImage)]
+    vec![Box::new(LsbImage), Box::new(LsbSeeded)]
 }
 
 /// Look up a method by its stable id.

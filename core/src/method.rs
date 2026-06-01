@@ -22,9 +22,22 @@ pub struct Capacity {
     pub usable_bytes: u64,
 }
 
-/// Per-embed options. Reserved for future methods (e.g. decoy slot, seed).
+/// Per-embed options.
+///
+/// `seed` keys the carrier-position permutation for seedable methods (the
+/// LSB family, edge-adaptive). Methods that don't randomize positions (e.g.
+/// the Phase-0 sequential `lsb_image`) ignore it.
 #[derive(Debug, Clone, Default)]
-pub struct EmbedOpts;
+pub struct EmbedOpts {
+    pub seed: Option<[u8; 32]>,
+}
+
+/// Per-extract options. Mirrors [`EmbedOpts`] so seedable methods can rebuild
+/// the same permutation at read time.
+#[derive(Debug, Clone, Default)]
+pub struct ExtractOpts {
+    pub seed: Option<[u8; 32]>,
+}
 
 pub trait Method: Send + Sync {
     fn id(&self) -> &'static str;
@@ -39,5 +52,6 @@ pub trait Method: Send + Sync {
         -> Result<Vec<u8>, StegnoError>;
 
     /// Read the framed byte stream back out of `stego`. `Ok(None)` if no frame.
-    fn extract(&self, stego: &[u8]) -> Result<Option<Vec<u8>>, StegnoError>;
+    fn extract(&self, stego: &[u8], opts: &ExtractOpts)
+        -> Result<Option<Vec<u8>>, StegnoError>;
 }
