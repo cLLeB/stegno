@@ -8,30 +8,63 @@ import {
   listMethods,
   readFile,
   writeFile,
+  type MethodInfo,
   type Revealed,
 } from "./api";
-
-const METHOD = "lsb_image";
 
 type Tab = "hide" | "extract";
 type SecretMode = "text" | "file";
 
+/// Output file extension for a method's carrier medium.
+function mediaExtension(media: string): string {
+  switch (media) {
+    case "Image":
+      return "png";
+    case "Audio":
+      return "wav";
+    case "Text":
+      return "txt";
+    default:
+      return "bin";
+  }
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("hide");
-  const [ready, setReady] = useState(false);
+  const [methods, setMethods] = useState<MethodInfo[]>([]);
+  const [methodId, setMethodId] = useState<string>("lsb_image");
 
   useEffect(() => {
     listMethods()
-      .then((ms) => setReady(ms.some((m) => m.id === METHOD)))
-      .catch(() => setReady(false));
+      .then((ms) => {
+        setMethods(ms);
+        if (ms.length > 0 && !ms.some((m) => m.id === methodId)) {
+          setMethodId(ms[0].id);
+        }
+      })
+      .catch(() => setMethods([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const method = methods.find((m) => m.id === methodId);
 
   return (
     <div className="app">
       <header>
         <h1>Stegno</h1>
-        <p className="sub">Offline steganography · LSB image (PNG)</p>
+        <p className="sub">Offline steganography · {methods.length} methods</p>
       </header>
+
+      <label className="method">
+        <span>Method</span>
+        <select value={methodId} onChange={(e) => setMethodId(e.target.value)}>
+          {methods.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.displayName} · {m.media}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <div className="tabs">
         <button className={tab === "hide" ? "on" : ""} onClick={() => setTab("hide")}>
@@ -42,15 +75,24 @@ export default function App() {
         </button>
       </div>
 
-      {!ready && <p className="warn">Engine not available.</p>}
-      {tab === "hide" ? <HideTab /> : <ExtractTab />}
+      {methods.length === 0 && <p className="warn">Engine not available.</p>}
+      {tab === "hide" ? (
+        <HideTab methodId={methodId} media={method?.media ?? "File"} />
+      ) : (
+        <ExtractTab methodId={methodId} />
+      )}
 
       <footer>Argon2id + AES-256-GCM · nothing leaves this device.</footer>
     </div>
   );
 }
 
-function HideTab() {
+interface HideTabProps {
+  methodId: string;
+  media: string;
+}
+
+function HideTab({ methodId, media }: HideTabProps) {
   const [cover, setCover] = useState<number[] | null>(null);
   const [coverName, setCoverName] = useState("");
   const [cap, setCap] = useState<number | null>(null);
@@ -62,22 +104,25 @@ function HideTab() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // Recompute capacity whenever the cover or method changes.
+  useEffect(() => {
+    if (!cover) {
+      setCap(null);
+      return;
+    }
+    capacity(methodId, cover)
+      .then(setCap)
+      .catch(() => setCap(null));
+  }, [cover, methodId]);
+
   async function pickCover() {
-    const path = await open({
-      multiple: false,
-      filters: [{ name: "Image", extensions: ["png", "jpg", "jpeg", "bmp", "webp", "gif"] }],
-    });
+    const path = await open({ multiple: false });
     if (typeof path !== "string") return;
     const bytes = await readFile(path);
     setCover(bytes);
-    setCoverName(path.split(/[\\/]/).pop() ?? "image");
+    setCoverName(path.split(/[\\/]/).pop() ?? "cover");
     setMsg(null);
     setErr(null);
-    try {
-      setCap(await capacity(METHOD, bytes));
-    } catch {
-      setCap(null);
-    }
   }
 
   async function pickSecretFile() {
@@ -95,11 +140,12 @@ function HideTab() {
     try {
       const out =
         mode === "text"
-          ? await embedText(METHOD, cover, text, pass)
-          : await embedFile(METHOD, cover, file!.name, file!.bytes, pass);
+          ? await embedText(methodId, cover, text, pass)
+          : await embedFile(methodId, cover, file!.name, file!.bytes, pass);
+      const ext = mediaExtension(media);
       const path = await save({
-        defaultPath: "stego.png",
-        filters: [{ name: "PNG", extensions: ["png"] }],
+        defaultPath: `stego.${ext}`,
+        filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
       });
       if (typeof path === "string") {
         await writeFile(path, out);
@@ -117,7 +163,7 @@ function HideTab() {
   return (
     <div className="panel">
       <button className="picker" onClick={pickCover}>
-        {cover ? `Cover: ${coverName}` : "Choose cover image…"}
+        {cover ? `Cover: ${coverName}` : "Choose cover file…"}
       </button>
       {cap !== null && <p className="cap">Capacity: ~{cap.toLocaleString()} bytes</p>}
 
@@ -151,7 +197,7 @@ function HideTab() {
       />
 
       <button className="primary" disabled={!canEmbed} onClick={doEmbed}>
-        {busy ? "Embedding…" : "Hide & save PNG"}
+        {busy ? "Embedding…" : "Hide & save"}
       </button>
 
       {msg && <p className="ok">{msg}</p>}
@@ -160,7 +206,11 @@ function HideTab() {
   );
 }
 
-function ExtractTab() {
+interface ExtractTabProps {
+  methodId: string;
+}
+
+function ExtractTab({ methodId }: ExtractTabProps) {
   const [stego, setStego] = useState<number[] | null>(null);
   const [stegoName, setStegoName] = useState("");
   const [pass, setPass] = useState("");
@@ -169,13 +219,10 @@ function ExtractTab() {
   const [err, setErr] = useState<string | null>(null);
 
   async function pickStego() {
-    const path = await open({
-      multiple: false,
-      filters: [{ name: "PNG", extensions: ["png"] }],
-    });
+    const path = await open({ multiple: false });
     if (typeof path !== "string") return;
     setStego(await readFile(path));
-    setStegoName(path.split(/[\\/]/).pop() ?? "image");
+    setStegoName(path.split(/[\\/]/).pop() ?? "stego");
     setResult(null);
     setErr(null);
   }
@@ -186,7 +233,7 @@ function ExtractTab() {
     setResult(null);
     setErr(null);
     try {
-      setResult(await extract(METHOD, stego, pass));
+      setResult(await extract(methodId, stego, pass));
     } catch (e) {
       setErr(String(e));
     }
@@ -201,7 +248,7 @@ function ExtractTab() {
   return (
     <div className="panel">
       <button className="picker" onClick={pickStego}>
-        {stego ? `Stego: ${stegoName}` : "Choose stego PNG…"}
+        {stego ? `Stego: ${stegoName}` : "Choose stego file…"}
       </button>
       <input
         type="password"

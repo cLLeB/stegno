@@ -157,3 +157,27 @@ footer {
   font-size: 10px;
   color: #5a606b;
 }
+
+.method {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: #aeb4bf;
+}
+.method span {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.method select {
+  flex: 1;
+  padding: 8px 10px;
+  background: #1b1f27;
+  color: #e6e9ef;
+  border: 1px solid #2c313b;
+  border-radius: 8px;
+  font-size: 13px;
+}
