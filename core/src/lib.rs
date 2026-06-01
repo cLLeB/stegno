@@ -9,7 +9,9 @@ pub mod image_io;
 pub mod method;
 pub mod methods;
 pub mod payload;
+pub mod prng;
 pub mod registry;
+pub mod seed;
 
 use payload::{Revealed, Secret};
 
