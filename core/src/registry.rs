@@ -8,6 +8,7 @@ use crate::methods::lsb_matching::LsbMatching;
 use crate::methods::lsb_seeded::LsbSeeded;
 use crate::methods::png_text::PngText;
 use crate::methods::pvd::Pvd;
+use crate::methods::wav_lsb::WavLsb;
 use crate::methods::whitespace::Whitespace;
 use crate::methods::zero_width::ZeroWidth;
 
@@ -23,6 +24,7 @@ pub fn registry() -> Vec<Box<dyn Method>> {
         Box::new(Whitespace),
         Box::new(AppendEof),
         Box::new(PngText),
+        Box::new(WavLsb),
     ]
 }
 

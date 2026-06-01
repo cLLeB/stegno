@@ -10,5 +10,6 @@ pub mod lsb_matching;
 pub mod lsb_seeded;
 pub mod png_text;
 pub mod pvd;
+pub mod wav_lsb;
 pub mod whitespace;
 pub mod zero_width;
