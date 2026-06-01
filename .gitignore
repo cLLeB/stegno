@@ -23,6 +23,12 @@ android/.idea/
 *.jks
 *.keystore
 
+# Android generated/native artifacts (regenerated — see README "Building > Android")
+# cargo-ndk output (.so per ABI)
+android/app/src/main/jniLibs/
+# UniFFI-generated Kotlin bindings
+android/app/src/main/java/uniffi/
+
 # OS / editor
 .DS_Store
 Thumbs.db

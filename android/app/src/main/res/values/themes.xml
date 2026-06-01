@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose supplies its own MaterialTheme; this just gives a no-action-bar
+         framework shell so we don't depend on AppCompat/Material XML. -->
+    <style name="Theme.Stegno" parent="android:Theme.Material.NoActionBar" />
+</resources>
