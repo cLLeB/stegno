@@ -11,8 +11,15 @@
 
 use crate::image_io::{decode_rgba, encode_png, RgbaImage};
 use crate::payload;
-use crate::seed;
+use crate::seed::{self, Slot};
 use crate::StegnoError;
+
+/// Fixed, non-secret seed defining the decoy "master ranking". Splitting this
+/// public permutation in half yields two disjoint position sets — one per slot
+/// — so the real and decoy payloads can never collide. It is a constant (not
+/// key-derived) precisely so the extractor can reconstruct the regions with
+/// only the passphrase.
+const DECOY_MASTER_SEED: [u8; 32] = *b"stegno/decoy/master-ranking/v1!!";
 
 /// Colour channels used as carriers: R, G, B (alpha is left untouched).
 pub const CHANNELS_PER_PIXEL: usize = 3;
@@ -59,16 +66,17 @@ pub fn prepare(cover: &[u8], seed: Option<&[u8; 32]>) -> Result<(RgbaImage, Vec<
     Ok((img, order))
 }
 
-/// Embed `payload` using `order` and a per-channel `write` strategy, then encode
-/// to PNG. `write(channel_value, bit) -> new_channel_value`.
+/// Embed `payload` into an already-decoded image following `order` and a
+/// per-channel `write` strategy. Does not encode — lets callers (e.g. the decoy
+/// scheme) embed several frames into one image before encoding once.
 ///
 /// Fails with `CoverTooSmall` if the payload needs more slots than `order` has.
-pub fn embed_with<F>(
-    mut img: RgbaImage,
+pub fn embed_into<F>(
+    img: &mut RgbaImage,
     payload: &[u8],
     order: &[u32],
     mut write: F,
-) -> Result<Vec<u8>, StegnoError>
+) -> Result<(), StegnoError>
 where
     F: FnMut(u8, u8) -> u8,
 {
@@ -85,7 +93,57 @@ where
             bit += 1;
         }
     }
+    Ok(())
+}
+
+/// Embed `payload` and encode to PNG. Convenience wrapper over [`embed_into`].
+pub fn embed_with<F>(
+    mut img: RgbaImage,
+    payload: &[u8],
+    order: &[u32],
+    write: F,
+) -> Result<Vec<u8>, StegnoError>
+where
+    F: FnMut(u8, u8) -> u8,
+{
+    embed_into(&mut img, payload, order, write)?;
     encode_png(&img)
+}
+
+/// Capacity (bytes) of one decoy slot's region — roughly half the image, minus
+/// frame/crypto overhead.
+pub fn decoy_slot_capacity_bytes(width: u32, height: u32) -> u64 {
+    let region = total_slots(width, height) / 2; // bits in one half
+    ((region / 8) as u64).saturating_sub(payload::overhead() as u64)
+}
+
+/// Channel-slot visiting order for one decoy slot.
+///
+/// The fixed [`DECOY_MASTER_SEED`] permutation is split in half — `Primary`
+/// takes the first half, `Decoy` the second — guaranteeing the two slots use
+/// disjoint positions. Within the half, the visiting order is the
+/// passphrase-keyed permutation, so the payload is still scattered and only the
+/// holder of the right passphrase reconstructs it.
+pub fn decoy_region_order(
+    width: u32,
+    height: u32,
+    slot: Slot,
+    key_seed: &[u8; 32],
+) -> Vec<u32> {
+    let n = total_slots(width, height);
+    if n == 0 {
+        return Vec::new();
+    }
+    let master = seed::permutation(n, &DECOY_MASTER_SEED);
+    let half = n / 2;
+    let region: &[u32] = match slot {
+        Slot::Primary => &master[..half],
+        Slot::Decoy => &master[half..],
+    };
+    seed::permutation(region.len(), key_seed)
+        .into_iter()
+        .map(|i| region[i as usize])
+        .collect()
 }
 
 /// Overwrite the LSB of `value` with `bit` (classic LSB replacement).

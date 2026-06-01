@@ -76,17 +76,76 @@ pub fn embed(
 ) -> Result<Vec<u8>, StegnoError> {
     let m = registry::lookup(&method_id)
         .ok_or_else(|| StegnoError::Internal("unknown method".into()))?;
-    let inner = payload::serialize_secret(&secret);
-    let sealed =
-        crypto::seal(&inner, &passphrase).map_err(|_| StegnoError::Internal("seal".into()))?;
-    let framed = payload::frame(&sealed);
+    let framed = seal_and_frame(&secret, &passphrase)?;
     let opts = EmbedOpts {
         seed: Some(derive_seed(&passphrase, Slot::Primary)),
     };
     m.embed(&cover, &framed, &opts)
 }
 
+/// Embed a **real** secret and a **decoy** secret into one cover, each sealed
+/// under its own passphrase and placed in a disjoint, key-seeded region (LSB
+/// replacement). Under coercion the user reveals only the decoy passphrase; the
+/// real slot is indistinguishable from unused image noise without the real key.
+///
+/// Each slot holds ≈ half the image (see [`decoy_capacity`]); both secrets must
+/// fit or `CoverTooSmall` is returned. Extract with the ordinary [`extract`] —
+/// it unlocks whichever slot the supplied passphrase sealed.
+#[uniffi::export]
+pub fn embed_with_decoy(
+    cover: Vec<u8>,
+    real_secret: Secret,
+    real_passphrase: String,
+    decoy_secret: Secret,
+    decoy_passphrase: String,
+) -> Result<Vec<u8>, StegnoError> {
+    use methods::lsb_common;
+    let mut img = image_io::decode_rgba(&cover)?;
+    let (w, h) = (img.width, img.height);
+
+    let real_frame = seal_and_frame(&real_secret, &real_passphrase)?;
+    let decoy_frame = seal_and_frame(&decoy_secret, &decoy_passphrase)?;
+
+    let real_order = lsb_common::decoy_region_order(
+        w,
+        h,
+        Slot::Primary,
+        &derive_seed(&real_passphrase, Slot::Primary),
+    );
+    let decoy_order = lsb_common::decoy_region_order(
+        w,
+        h,
+        Slot::Decoy,
+        &derive_seed(&decoy_passphrase, Slot::Decoy),
+    );
+
+    lsb_common::embed_into(&mut img, &real_frame, &real_order, lsb_common::replace_lsb)?;
+    lsb_common::embed_into(&mut img, &decoy_frame, &decoy_order, lsb_common::replace_lsb)?;
+    image_io::encode_png(&img)
+}
+
+/// Usable payload bytes **per slot** when embedding with a decoy (≈ half image).
+#[uniffi::export]
+pub fn decoy_capacity(cover: Vec<u8>) -> Result<u64, StegnoError> {
+    let img = image_io::decode_rgba(&cover)?;
+    Ok(methods::lsb_common::decoy_slot_capacity_bytes(
+        img.width, img.height,
+    ))
+}
+
+/// Serialize, encrypt, and frame a secret — the layers above every `Method`.
+fn seal_and_frame(secret: &Secret, passphrase: &str) -> Result<Vec<u8>, StegnoError> {
+    let inner = payload::serialize_secret(secret);
+    let sealed =
+        crypto::seal(&inner, passphrase).map_err(|_| StegnoError::Internal("seal".into()))?;
+    Ok(payload::frame(&sealed))
+}
+
 /// Extract and decrypt a hidden payload from `stego`.
+///
+/// Handles ordinary stego images and decoy-mode images (see
+/// [`embed_with_decoy`]) transparently: the passphrase unlocks whichever slot it
+/// sealed, and reveals nothing about the other.
 #[uniffi::export]
 pub fn extract(
     method_id: String,
@@ -98,17 +157,56 @@ pub fn extract(
     let xopts = ExtractOpts {
         seed: Some(derive_seed(&passphrase, Slot::Primary)),
     };
-    let stream = match m.extract(&stego, &xopts)? {
-        Some(s) => s,
-        None => return Ok(Revealed::None),
-    };
-    let sealed = match payload::unframe(&stream)? {
-        Some(s) => s,
-        None => return Ok(Revealed::None),
-    };
-    let inner = crypto::open(&sealed, &passphrase).map_err(|_| StegnoError::AuthFailed)?;
-    Ok(match payload::deserialize_secret(&inner)? {
+
+    // 1) The method's ordinary read path.
+    let mut frame_seen_wrong_pass = false;
+    if let Some(stream) = m.extract(&stego, &xopts)? {
+        if let Some(sealed) = payload::unframe(&stream)? {
+            match crypto::open(&sealed, &passphrase) {
+                Ok(inner) => return revealed_from_inner(&inner),
+                // A frame existed but didn't decrypt — could be a decoy image
+                // whose layout differs; keep trying before deciding.
+                Err(_) => frame_seen_wrong_pass = true,
+            }
+        }
+    }
+
+    // 2) Decoy-mode fallback: try each region keyed by the matching slot.
+    if let Some(rev) = try_decoy_slots(&stego, &passphrase)? {
+        return Ok(rev);
+    }
+
+    if frame_seen_wrong_pass {
+        return Err(StegnoError::AuthFailed);
+    }
+    Ok(Revealed::None)
+}
+
+fn revealed_from_inner(inner: &[u8]) -> Result<Revealed, StegnoError> {
+    Ok(match payload::deserialize_secret(inner)? {
         Secret::Text { text } => Revealed::Text { text },
         Secret::File { name, bytes } => Revealed::File { name, bytes },
     })
+}
+
+/// Try both decoy regions; return the first that decrypts under `passphrase`.
+/// Lenient: a coincidental header in the wrong region is skipped, not fatal.
+fn try_decoy_slots(stego: &[u8], passphrase: &str) -> Result<Option<Revealed>, StegnoError> {
+    let img = image_io::decode_rgba(stego)?;
+    for slot in [Slot::Primary, Slot::Decoy] {
+        let key = derive_seed(passphrase, slot);
+        let order = methods::lsb_common::decoy_region_order(img.width, img.height, slot, &key);
+        let framed = match methods::lsb_common::read_frame_with(&img, &order) {
+            Ok(Some(f)) => f,
+            _ => continue,
+        };
+        let sealed = match payload::unframe(&framed) {
+            Ok(Some(s)) => s,
+            _ => continue,
+        };
+        if let Ok(inner) = crypto::open(&sealed, passphrase) {
+            return Ok(Some(revealed_from_inner(&inner)?));
+        }
+    }
+    Ok(None)
 }
