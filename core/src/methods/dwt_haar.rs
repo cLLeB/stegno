@@ -20,7 +20,7 @@
 //! the README roadmap note.
 
 use super::lsb_common::CHANNELS_PER_PIXEL;
-use crate::image_io::{decode_rgba, encode_png, RgbaImage};
+use crate::image_io::{decode_rgba, encode_png};
 use crate::method::{Capacity, EmbedOpts, ExtractOpts, Media, Method};
 use crate::payload;
 use crate::seed;
@@ -190,6 +190,7 @@ impl Method for DwtHaar {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::image_io::RgbaImage;
     use crate::seed::{derive_seed, Slot};
 
     fn textured(w: u32, h: u32) -> RgbaImage {
