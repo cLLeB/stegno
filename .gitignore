@@ -1,0 +1,34 @@
+# Rust
+/target/
+**/target/
+Cargo.lock.bak
+
+# Node / web
+node_modules/
+dist/
+.vite/
+*.log
+
+# Tauri
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+*.jks
+*.keystore
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# UniFFI generated (regenerated from .udl)
+**/uniffi-generated/
