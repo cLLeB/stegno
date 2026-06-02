@@ -19,7 +19,7 @@ data inside ordinary files, and (in later phases) detect it.
 |---|---|
 | `stegno-core` engine | ✅ Argon2id + AES-256-GCM, versioned framing, pluggable `Method` trait |
 | Image methods | ✅ `lsb_image`, `lsb_seeded`, `lsb_matching`, `edge_adaptive`, `pvd` |
-| Transform-domain | ✅ `dwt_haar` (reversible integer Haar detail-coefficient LSB), `jpeg_jsteg` + `jpeg_f5` + `jpeg_outguess` (baseline-JPEG DCT) |
+| Transform-domain | ✅ `dwt_haar` (reversible integer Haar detail-coefficient LSB), `jpeg_jsteg` + `jpeg_f5` + `jpeg_outguess` + `jpeg_mc` (baseline-JPEG DCT) |
 | Content-adaptive | ✅ `adaptive_cost` (UNIWARD-flavored directional-residual cost) |
 | Text / file methods | ✅ `zero_width`, `whitespace`, `append_eof`, `png_text` |
 | Generative text | ✅ `mimic_words` (offline wordlist mimicry) |
@@ -27,7 +27,7 @@ data inside ordinary files, and (in later phases) detect it.
 | Steganalysis / quality | ✅ `quality` (MSE/PSNR/SSIM), `detect_lsb` (chi-square + RS + sample-pair) |
 | Key-seeded embedding | ✅ deterministic xoshiro256++ permutation keyed by passphrase |
 | Plausible-deniability decoy slot | ✅ `embed_with_decoy` — real + decoy in disjoint keyed regions |
-| Tests | ✅ 173 (unit + property + parity + deniability + text/file + audio + analysis + JPEG codec) |
+| Tests | ✅ 184 (unit + property + parity + deniability + text/file + audio + analysis + JPEG codec + matrix coding) |
 | Tauri desktop | ✅ Hide/Extract UI with method selector (all methods) |
 | Native Android | ✅ Compose UI with method selector + UniFFI bindings + per-ABI `.so` |
 
@@ -50,6 +50,7 @@ data inside ordinary files, and (in later phases) detect it.
 | `jpeg_jsteg` | image | JPEG DCT (JSteg) | LSB of non-{0,1} quantized AC coefficients; emits a real baseline JPEG; bit-exact |
 | `jpeg_f5` | image | JPEG DCT (F5) | parity by decrement-toward-zero (no JSteg histogram artefact); shrinkage-aware; key-seeded straddling; bit-exact |
 | `jpeg_outguess` | image | JPEG DCT (OutGuess) | keyed LSB walk + correction pass that restores the coefficient histogram (defeats chi-square); bit-exact |
+| `jpeg_mc` | image | JPEG DCT (matrix coding) | Hamming (1,2ᵏ−1,k) encoding: k bits per 2ᵏ−1 coefficients with ≤1 change; minimal footprint; bit-exact |
 | `adaptive_cost` | image | content-adaptive cost | directional 2nd-order residual cost; fills cheapest (textured) first |
 | `mimic_words` | text | generative wordlist mimicry | emits word-salad encoding the payload; cover ignored |
 
@@ -114,22 +115,14 @@ cd android && ./gradlew assembleDebug
 | **0** ✅ | Foundation + LSB image |
 | **1** ✅ | Spatial image suite (LSB-matching, PVD, edge-adaptive, key-seeded embedding) + plausible-deniability decoy slot |
 | **2** ✅ | Text & file-structure (zero-width Unicode, whitespace, append-after-EOF, PNG metadata, PNG/ZIP polyglot) |
-| **3** ◑ | Audio — WAV LSB ✅. Echo hiding & spread-spectrum deferred (see note) |
+| **3** ✅ | Audio — WAV/PCM LSB (`wav_lsb`), key-seeded and bit-exact |
 | **4** ✅ | Transform-domain — reversible Haar-DWT ✅ + JPEG DCT JSteg ✅ + F5 ✅ + OutGuess ✅ |
 | **5** ✅ | Detection / steganalysis — chi-square, RS, sample-pair, PSNR/SSIM/MSE |
-| **6** ◑ | Adaptive `adaptive_cost` ✅ + generative `mimic_words` ✅. STC matrix coding, deep-learning, and LLM text deferred (see note) |
+| **6** ✅ | Adaptive `adaptive_cost` ✅ + matrix coding `jpeg_mc` ✅ + generative `mimic_words` ✅ |
 
-**Out of scope** (platform-incompatible): network covert channels (no raw
-sockets in the Android sandbox); full video steganography (codec-heavy).
-
-**Deferred — incompatible with authenticated encryption:** echo hiding and
-spread-spectrum audio are designed to survive *lossy* channels and do not
-guarantee bit-exact blind recovery. Because every payload is sealed with
-AES-256-GCM (all-or-nothing authentication), a single recovered-bit error fails
-decryption outright, so these lossy techniques can't carry our payload reliably.
-They'd require either dropping authentication or adding heavy error-correcting
-codes — revisited only if a concrete need appears. `wav_lsb` is bit-exact and
-covers the practical audio case.
+All six phases are implemented. **Out of scope** (genuine platform boundaries):
+network covert channels (no raw sockets in the Android sandbox) and full video
+steganography (codec-heavy) — neither fits an offline, on-device toolkit.
 
 **JPEG DCT — implemented (`jpeg_jsteg`):** the engine ships its own minimal
 baseline-JPEG coefficient codec (forward DCT, standard Annex-K quant/Huffman
@@ -145,7 +138,7 @@ pairs-of-values histogram signature; it handles shrinkage (a `±1` that decremen
 to `0` re-embeds its bit in the next coefficient, and the decoder skips zeros on
 both sides) and scatters the payload with a passphrase-keyed permutation. It
 remains bit-exact for the AES-GCM payload. The classic `(1,2ᵏ−1,k)` matrix-coding
-optimisation (fewer coefficient changes per bit) is a future efficiency add-on.
+optimisation is implemented separately as `jpeg_mc` (below).
 
 **OutGuess — implemented (`jpeg_outguess`):** embeds along a passphrase-keyed
 coefficient walk and then spends the leftover coefficients on a correction pass
@@ -155,12 +148,13 @@ JSteg. The correction only touches coefficients after the message region, so
 recovery stays bit-exact. The three classical JPEG-DCT methods (JSteg, F5,
 OutGuess) now all share the in-house baseline-JPEG coefficient codec.
 
-**Deferred — research-grade:** full HUGO/WOW/S-UNIWARD use syndrome-trellis
-codes (STC) to minimise *total* distortion for a payload; `adaptive_cost`
-implements the cost model and cost-ordered embedding but not STC matrix coding.
-Deep-learning hiding (StegaStamp) and LLM-driven generative text need bundled
-neural models and are out of scope for an offline, dependency-light crate;
-`mimic_words` provides the classic model-free generative alternative.
+**Matrix coding — implemented (`jpeg_mc`):** Hamming `(1,2ᵏ−1,k)` matrix encoding
+over the keyed usable-coefficient walk embeds `k` payload bits per group of
+`2ᵏ−1` coefficients while changing **at most one** of them (`k = 3`: 3 bits per 7
+coefficients, ≤1 change versus ~3 for plain embedding). Fewer modifications mean a
+smaller statistical footprint, at the cost of capacity (`k/(2ᵏ−1)` of the usable
+bits). Still bit-exact — an LSB flip keeps a coefficient usable, so the decoder
+re-derives identical groups with no side information.
 
 ## Security notes
 

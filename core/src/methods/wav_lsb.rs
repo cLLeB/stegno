@@ -7,10 +7,10 @@
 //! chunk's sample bytes are touched; every other byte (headers, other chunks)
 //! is preserved, so the file stays a valid WAV.
 //!
-//! Like image LSB this is **bit-exact** (required by AES-GCM). The lossy audio
-//! techniques in the roadmap (echo hiding, spread-spectrum) are intentionally
-//! deferred: they don't guarantee exact bit recovery, so they can't carry an
-//! authenticated-encryption payload without frequent decryption failures.
+//! Like image LSB this is **bit-exact**, which is required by AES-GCM: a single
+//! recovered-bit error fails the auth tag. That constraint is why `wav_lsb` is the
+//! engine's audio method — lossy schemes (echo hiding, spread-spectrum) recover
+//! bits only statistically and so are out of scope for an authenticated payload.
 
 use crate::method::{Capacity, EmbedOpts, ExtractOpts, Media, Method};
 use crate::payload;

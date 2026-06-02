@@ -5,9 +5,9 @@
 //! fixed 16-word table (high nibble, then low nibble), so the output reads like
 //! (clumsy) English and decodes unambiguously by splitting on whitespace.
 //!
-//! This is the classic, model-free mimicry approach. Full LLM-driven generative
-//! linguistic stego (fluent text under a language model) is deferred — it needs
-//! a bundled model and is out of scope for an offline crate (see README note).
+//! This is the classic, model-free mimicry approach — the right fit for an
+//! offline, dependency-light crate (LLM-driven fluent text would need a bundled
+//! language model, which is out of scope for this toolkit).
 //!
 //! The `cover` argument is ignored (the text is generated from scratch).
 

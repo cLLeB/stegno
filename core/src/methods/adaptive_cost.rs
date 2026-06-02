@@ -4,9 +4,10 @@
 //! residuals: smooth, predictable regions cost a lot (changes there are
 //! conspicuous), textured regions cost little. The payload fills the
 //! lowest-cost positions first, concentrating changes where they hide best —
-//! the same principle as WOW / S-UNIWARD, minus the syndrome-trellis matrix
-//! coding (which minimises *total* cost for a given payload and is deferred; see
-//! the README roadmap note).
+//! the same principle as WOW / S-UNIWARD. Hamming `(1,2ᵏ−1,k)` matrix coding —
+//! which lowers the *number* of changes per payload bit — is implemented for the
+//! JPEG domain as `jpeg_mc`; this spatial method embeds one bit per cost-ordered
+//! position.
 //!
 //! Like [`super::edge_adaptive`], the cost is computed from LSB-stripped values
 //! so the ordering is invariant under LSB replacement and the extractor

@@ -5,7 +5,7 @@ use crate::methods::adaptive_cost::AdaptiveCost;
 use crate::methods::append_eof::AppendEof;
 use crate::methods::dwt_haar::DwtHaar;
 use crate::methods::edge_adaptive::EdgeAdaptive;
-use crate::methods::jpeg::{JpegF5, JpegJsteg, JpegOutguess};
+use crate::methods::jpeg::{JpegF5, JpegJsteg, JpegMc, JpegOutguess};
 use crate::methods::mimic_words::MimicWords;
 use crate::methods::polyglot::Polyglot;
 use crate::methods::lsb_image::LsbImage;
@@ -34,6 +34,7 @@ pub fn registry() -> Vec<Box<dyn Method>> {
         Box::new(JpegJsteg),
         Box::new(JpegF5),
         Box::new(JpegOutguess),
+        Box::new(JpegMc),
         Box::new(AdaptiveCost),
         Box::new(MimicWords),
         Box::new(Polyglot),

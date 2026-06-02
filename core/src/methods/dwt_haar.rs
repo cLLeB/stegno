@@ -15,9 +15,9 @@
 //! identical use/skip decision from the stego image. No pair is corrupted and no
 //! side information is needed.
 //!
-//! For the JPEG transform domain see the sibling `jpeg_jsteg` method, which
-//! ships a baseline-JPEG coefficient codec and embeds bit-exactly in quantized
-//! DCT coefficients. F5 / OutGuess remain deferred — see the README roadmap note.
+//! For the JPEG transform domain see the sibling `jpeg_jsteg`, `jpeg_f5`,
+//! `jpeg_outguess`, and `jpeg_mc` methods, which share a baseline-JPEG coefficient
+//! codec and embed bit-exactly in quantized DCT coefficients.
 
 use super::lsb_common::CHANNELS_PER_PIXEL;
 use crate::image_io::{decode_rgba, encode_png};

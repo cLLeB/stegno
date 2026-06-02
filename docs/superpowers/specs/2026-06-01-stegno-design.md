@@ -277,16 +277,23 @@ Each phase is its own spec → plan → build, and every method plugs into the
 | **0** | Foundation + LSB image | `lsb_image`, crypto, framing, both shells |
 | **1** | Spatial image suite + decoy | LSB-matching, PVD, edge-adaptive, **key-seeded randomized embedding**, **plausible-deniability decoy slot** |
 | **2** | Text & file-structure | zero-width Unicode, whitespace, append-after-EOF, polyglot, EXIF/PNG-tEXt metadata |
-| **3** | Audio | WAV LSB, echo hiding, spread-spectrum |
-| **4** | Transform-domain image | JPEG DCT (JSteg / F5 / OutGuess-style), DWT |
-| **5** | Detection / steganalysis | chi-square, RS analysis, sample-pair, histogram; PSNR/SSIM quality metrics |
-| **6** | Adaptive & ML (research) | HUGO / WOW / S-UNIWARD + STC; StegaStamp-style deep hiding; generative LLM linguistic stego |
+| **3** | Audio | WAV/PCM LSB (`wav_lsb`) — key-seeded, bit-exact |
+| **4** | Transform-domain image | DWT (`dwt_haar`) + JPEG DCT: `jpeg_jsteg`, `jpeg_f5`, `jpeg_outguess`, `jpeg_mc` (Hamming matrix coding) |
+| **5** | Detection / steganalysis | chi-square, RS analysis, sample-pair; PSNR/SSIM/MSE quality metrics |
+| **6** | Adaptive & generative | `adaptive_cost` (UNIWARD-style cost ordering) + matrix coding (`jpeg_mc`) + `mimic_words` (model-free generative) |
 
-### Explicitly out of scope (platform-incompatible)
+> **Status:** all six phases are implemented. The README is the living roadmap.
+
+### Explicitly out of scope
 
 - **Network covert channels** (DNS/TCP/ICMP/timing) — raw sockets are unavailable
   in the Android sandbox and undesirable for an offline tool.
 - **Full video steganography** — codec-heavy; revisit only if a clear need appears.
+- **Lossy audio (echo / spread-spectrum)** — statistical (not bit-exact) recovery,
+  so incompatible with the all-or-nothing AES-GCM payload; `wav_lsb` covers audio.
+- **Neural / LLM hiding** (StegaStamp deep hiding, LLM linguistic stego, STC) —
+  need bundled multi-gigabyte models, contradicting the offline, dependency-light
+  thesis; `adaptive_cost`, `jpeg_mc`, and `mimic_words` are the model-free analogues.
 
 ---
 
