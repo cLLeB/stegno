@@ -29,6 +29,9 @@ android/app/src/main/jniLibs/
 # UniFFI-generated Kotlin bindings
 android/app/src/main/java/uniffi/
 
+# Claude Code local session/task state
+.claude/
+
 # OS / editor
 .DS_Store
 Thumbs.db
