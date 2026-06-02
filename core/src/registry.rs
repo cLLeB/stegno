@@ -6,6 +6,7 @@ use crate::methods::append_eof::AppendEof;
 use crate::methods::dwt_haar::DwtHaar;
 use crate::methods::edge_adaptive::EdgeAdaptive;
 use crate::methods::mimic_words::MimicWords;
+use crate::methods::polyglot::Polyglot;
 use crate::methods::lsb_image::LsbImage;
 use crate::methods::lsb_matching::LsbMatching;
 use crate::methods::lsb_seeded::LsbSeeded;
@@ -31,6 +32,7 @@ pub fn registry() -> Vec<Box<dyn Method>> {
         Box::new(DwtHaar),
         Box::new(AdaptiveCost),
         Box::new(MimicWords),
+        Box::new(Polyglot),
     ]
 }
 

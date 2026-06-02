@@ -101,6 +101,29 @@ fn append_eof_end_to_end_file() {
 }
 
 #[test]
+fn polyglot_end_to_end() {
+    let stego = embed(
+        "polyglot".into(),
+        png(24, 24),
+        Secret::File {
+            name: "secret.dat".into(),
+            bytes: vec![3u8, 1, 4, 1, 5, 9, 2, 6],
+        },
+        "pw".into(),
+    )
+    .unwrap();
+    // Still a valid PNG prefix.
+    assert!(stego.len() > 100);
+    assert_eq!(
+        extract("polyglot".into(), stego, "pw".into()).unwrap(),
+        Revealed::File {
+            name: "secret.dat".into(),
+            bytes: vec![3u8, 1, 4, 1, 5, 9, 2, 6]
+        }
+    );
+}
+
+#[test]
 fn png_text_end_to_end() {
     let stego = embed(
         "png_text".into(),

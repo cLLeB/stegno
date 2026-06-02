@@ -21,18 +21,7 @@ const CHUNK: &[u8; 4] = b"stEg";
 const IEND: &[u8; 4] = b"IEND";
 const SOFT_CAPACITY: u64 = 1 << 24;
 
-/// Standard PNG CRC-32 (reflected, polynomial 0xEDB88320).
-fn crc32(bytes: &[u8]) -> u32 {
-    let mut crc = 0xFFFF_FFFFu32;
-    for &b in bytes {
-        crc ^= b as u32;
-        for _ in 0..8 {
-            let mask = (crc & 1).wrapping_neg();
-            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
-        }
-    }
-    !crc
-}
+use super::crc32::crc32;
 
 fn write_chunk(out: &mut Vec<u8>, ctype: &[u8; 4], data: &[u8]) {
     out.extend_from_slice(&(data.len() as u32).to_be_bytes());

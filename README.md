@@ -44,6 +44,7 @@ data inside ordinary files, and (in later phases) detect it.
 | `whitespace` | text | trailing whitespace | space=0 / tab=1 run after the text (SNOW-style) |
 | `append_eof` | file | append after EOF | data after the file's end marker; any cover, still opens |
 | `png_text` | image | PNG metadata chunk | frame stored in a private `stEg` chunk; pixels untouched |
+| `polyglot` | image | PNG/ZIP polyglot | output is valid as both a PNG and a ZIP archive holding the secret |
 | `wav_lsb` | audio | WAV/PCM LSB | key-seeded LSB in sample low-bytes; 8/16/24/32-bit + float |
 | `dwt_haar` | image | Haar wavelet detail LSB | reversible integer S-transform; embeds in detail band; overflow-safe |
 | `adaptive_cost` | image | content-adaptive cost | directional 2nd-order residual cost; fills cheapest (textured) first |
@@ -109,7 +110,7 @@ cd android && ./gradlew assembleDebug
 |---|---|
 | **0** ✅ | Foundation + LSB image |
 | **1** ✅ | Spatial image suite (LSB-matching, PVD, edge-adaptive, key-seeded embedding) + plausible-deniability decoy slot |
-| **2** ✅ | Text & file-structure (zero-width Unicode, whitespace, append-after-EOF, PNG metadata) |
+| **2** ✅ | Text & file-structure (zero-width Unicode, whitespace, append-after-EOF, PNG metadata, PNG/ZIP polyglot) |
 | **3** ◑ | Audio — WAV LSB ✅. Echo hiding & spread-spectrum deferred (see note) |
 | **4** ◑ | Transform-domain — reversible Haar-DWT ✅. JPEG DCT (JSteg/F5/OutGuess) deferred (see note) |
 | **5** ✅ | Detection / steganalysis — chi-square, RS, PSNR/SSIM/MSE |

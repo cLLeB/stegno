@@ -4,9 +4,11 @@
 pub mod adaptive_cost;
 pub mod append_eof;
 pub mod bitvec;
+pub mod crc32;
 pub mod dwt_haar;
 pub mod edge_adaptive;
 pub mod mimic_words;
+pub mod polyglot;
 pub mod lsb_common;
 pub mod lsb_image;
 pub mod lsb_matching;
