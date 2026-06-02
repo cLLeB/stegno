@@ -7,6 +7,7 @@ pub mod bitvec;
 pub mod crc32;
 pub mod dwt_haar;
 pub mod edge_adaptive;
+pub mod jpeg;
 pub mod mimic_words;
 pub mod polyglot;
 pub mod lsb_common;

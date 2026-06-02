@@ -15,8 +15,14 @@ import {
 type Tab = "hide" | "extract";
 type SecretMode = "text" | "file";
 
-/// Output file extension for a method's carrier medium.
-function mediaExtension(media: string): string {
+/// Output file extension for a method. Most image methods emit PNG, but a few
+/// produce a different container (e.g. jpeg_jsteg emits a real JPEG), so the
+/// method id takes precedence over the carrier medium.
+function outputExtension(methodId: string, media: string): string {
+  switch (methodId) {
+    case "jpeg_jsteg":
+      return "jpg";
+  }
   switch (media) {
     case "Image":
       return "png";
@@ -142,7 +148,7 @@ function HideTab({ methodId, media }: HideTabProps) {
         mode === "text"
           ? await embedText(methodId, cover, text, pass)
           : await embedFile(methodId, cover, file!.name, file!.bytes, pass);
-      const ext = mediaExtension(media);
+      const ext = outputExtension(methodId, media);
       const path = await save({
         defaultPath: `stego.${ext}`,
         filters: [{ name: ext.toUpperCase(), extensions: [ext] }],

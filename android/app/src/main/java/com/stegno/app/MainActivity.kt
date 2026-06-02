@@ -47,12 +47,17 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/// Suggested output filename for a method's carrier medium.
-private fun outputName(media: String): String = when (media) {
-    "Image" -> "stego.png"
-    "Audio" -> "stego.wav"
-    "Text" -> "stego.txt"
-    else -> "stego.bin"
+/// Suggested output filename for a method. The method id takes precedence over
+/// the carrier medium, since a few image methods emit a non-PNG container
+/// (jpeg_jsteg produces a real JPEG).
+private fun outputName(methodId: String, media: String): String = when (methodId) {
+    "jpeg_jsteg" -> "stego.jpg"
+    else -> when (media) {
+        "Image" -> "stego.png"
+        "Audio" -> "stego.wav"
+        "Text" -> "stego.txt"
+        else -> "stego.bin"
+    }
 }
 
 @Composable
@@ -249,7 +254,7 @@ fun HideTab(
                         withContext(Dispatchers.Default) { embed(methodId, c, secret, pass) }
                     }.onSuccess {
                         pendingStego = it
-                        saveStego.launch(outputName(media))
+                        saveStego.launch(outputName(methodId, media))
                     }.onFailure { status = it.message ?: "Embedding failed" }
                     busy = false
                 }

@@ -15,9 +15,9 @@
 //! identical use/skip decision from the stego image. No pair is corrupted and no
 //! side information is needed.
 //!
-//! Lossy JPEG-DCT methods (JSteg / F5 / OutGuess) are deferred: they need
-//! coefficient-level JPEG I/O and don't fit the bit-exact AES-GCM payload — see
-//! the README roadmap note.
+//! For the JPEG transform domain see the sibling `jpeg_jsteg` method, which
+//! ships a baseline-JPEG coefficient codec and embeds bit-exactly in quantized
+//! DCT coefficients. F5 / OutGuess remain deferred — see the README roadmap note.
 
 use super::lsb_common::CHANNELS_PER_PIXEL;
 use crate::image_io::{decode_rgba, encode_png};
