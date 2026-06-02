@@ -153,6 +153,9 @@ pub struct DetectionReport {
     pub chi_square_p: f64,
     /// RS regularity gap (R−S)/(R+S); a *smaller* value is more suspicious.
     pub rs_regularity_gap: f64,
+    /// Sample-pair-analysis estimate of the LSB embedding rate, [0,1] (higher =
+    /// more suspicious).
+    pub sample_pair_rate: f64,
 }
 
 /// Compare a cover and its stego image. Both must decode and share dimensions.
@@ -177,6 +180,7 @@ pub fn detect_lsb(image: Vec<u8>) -> Result<DetectionReport, StegnoError> {
     Ok(DetectionReport {
         chi_square_p: analysis::chi_square_lsb(&img),
         rs_regularity_gap: analysis::rs_regularity_gap(&img),
+        sample_pair_rate: analysis::sample_pair_rate(&img),
     })
 }
 

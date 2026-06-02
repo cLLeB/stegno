@@ -91,4 +91,10 @@ fn detect_lsb_flags_full_embedding() {
         dirty.chi_square_p
     );
     assert!(dirty.rs_regularity_gap < clean.rs_regularity_gap);
+    assert!(
+        dirty.sample_pair_rate > clean.sample_pair_rate,
+        "SPA clean={} dirty={}",
+        clean.sample_pair_rate,
+        dirty.sample_pair_rate
+    );
 }

@@ -24,7 +24,7 @@ data inside ordinary files, and (in later phases) detect it.
 | Text / file methods | ✅ `zero_width`, `whitespace`, `append_eof`, `png_text` |
 | Generative text | ✅ `mimic_words` (offline wordlist mimicry) |
 | Audio methods | ✅ `wav_lsb` (bit-exact, key-seeded) |
-| Steganalysis / quality | ✅ `quality` (MSE/PSNR/SSIM), `detect_lsb` (chi-square + RS) |
+| Steganalysis / quality | ✅ `quality` (MSE/PSNR/SSIM), `detect_lsb` (chi-square + RS + sample-pair) |
 | Key-seeded embedding | ✅ deterministic xoshiro256++ permutation keyed by passphrase |
 | Plausible-deniability decoy slot | ✅ `embed_with_decoy` — real + decoy in disjoint keyed regions |
 | Tests | ✅ 132 (unit + property + parity + deniability + text/file + audio + analysis) |
@@ -113,7 +113,7 @@ cd android && ./gradlew assembleDebug
 | **2** ✅ | Text & file-structure (zero-width Unicode, whitespace, append-after-EOF, PNG metadata, PNG/ZIP polyglot) |
 | **3** ◑ | Audio — WAV LSB ✅. Echo hiding & spread-spectrum deferred (see note) |
 | **4** ◑ | Transform-domain — reversible Haar-DWT ✅. JPEG DCT (JSteg/F5/OutGuess) deferred (see note) |
-| **5** ✅ | Detection / steganalysis — chi-square, RS, PSNR/SSIM/MSE |
+| **5** ✅ | Detection / steganalysis — chi-square, RS, sample-pair, PSNR/SSIM/MSE |
 | **6** ◑ | Adaptive `adaptive_cost` ✅ + generative `mimic_words` ✅. STC matrix coding, deep-learning, and LLM text deferred (see note) |
 
 **Out of scope** (platform-incompatible): network covert channels (no raw

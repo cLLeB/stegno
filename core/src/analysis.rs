@@ -150,6 +150,77 @@ pub fn chi_square_lsb(img: &RgbaImage) -> f64 {
     1.0 - gammp(df as f64 / 2.0, chi2 / 2.0)
 }
 
+/// Sample-Pair Analysis estimate of the LSB embedding rate, in `[0, 1]`
+/// (Dumitrescu–Wu–Wang). Over horizontally adjacent sample pairs it forms the
+/// primary trace sets and solves the SPA quadratic; the result approximates the
+/// fraction of the LSB plane that has been randomised. Clean ≈ 0, full random
+/// LSB embedding ≈ 1.
+pub fn sample_pair_rate(img: &RgbaImage) -> f64 {
+    let w = img.width as usize;
+    let h = img.height as usize;
+    if w < 2 || h == 0 {
+        return 0.0;
+    }
+    // SPA trace-set counters (Dumitrescu et al. 2003).
+    let (mut x, mut y, mut k) = (0f64, 0f64, 0f64);
+    let mut total = 0f64;
+    for c in 0..3 {
+        for row in 0..h {
+            let base = row * w;
+            for col in 0..w - 1 {
+                let u = img.pixels[(base + col) * 4 + c] as i32;
+                let v = img.pixels[(base + col + 1) * 4 + c] as i32;
+                total += 1.0;
+                // Primary sets X and Y (by parity of v and ordering).
+                if (v % 2 == 0 && u < v) || (v % 2 == 1 && u > v) {
+                    x += 1.0;
+                }
+                if (v % 2 == 0 && u > v) || (v % 2 == 1 && u < v) {
+                    y += 1.0;
+                }
+                // W: pairs whose values sit in the same 2k/2k+1 bucket.
+                if (u >> 1) == (v >> 1) {
+                    k += 1.0;
+                }
+            }
+        }
+    }
+    if total == 0.0 {
+        return 0.0;
+    }
+    // SPA quadratic a·p² + b·p + c = 0 for embedding rate p.
+    let a = 0.5 * (x + y);
+    let b = -(2.0 * k + 2.0 * x - total);
+    let cc = k - y;
+    let p = solve_spa_quadratic(a, b, cc);
+    p.clamp(0.0, 1.0)
+}
+
+/// Smaller real root of `a·p² + b·p + c` in `[0,1]`, with linear/degenerate
+/// fallbacks. Returns 0 when no sensible root exists.
+fn solve_spa_quadratic(a: f64, b: f64, c: f64) -> f64 {
+    if a.abs() < 1e-9 {
+        if b.abs() < 1e-9 {
+            return 0.0;
+        }
+        return -c / b;
+    }
+    let disc = b * b - 4.0 * a * c;
+    if disc < 0.0 {
+        return 0.0;
+    }
+    let sq = disc.sqrt();
+    let r1 = (-b - sq) / (2.0 * a);
+    let r2 = (-b + sq) / (2.0 * a);
+    // Prefer the root in [0,1]; else the smaller magnitude.
+    for r in [r1, r2] {
+        if (0.0..=1.0).contains(&r) {
+            return r;
+        }
+    }
+    r1.abs().min(r2.abs())
+}
+
 /// RS regularity gap `(R − S)/(R + S)` for the positive mask. Clean images show
 /// a clear positive gap (regular ≫ singular); LSB embedding pushes it toward 0,
 /// so a **smaller** gap is more suspicious. Diagnostic, not a calibrated rate.
@@ -351,6 +422,36 @@ mod tests {
             .extract(&stego_png, &ExtractOpts::default())
             .unwrap()
             .is_some());
+    }
+
+    #[test]
+    fn sample_pair_rate_separates_clean_from_embedded() {
+        let mut clean = gradient(96, 96);
+        for b in clean.pixels.iter_mut() {
+            *b &= 0xFE;
+        }
+        clean.pixels.chunks_exact_mut(4).for_each(|p| p[3] = 255);
+        let cover_png = encode_png(&clean).unwrap();
+        let cap = LsbImage.capacity(&cover_png).unwrap().usable_bytes as usize;
+        let mut data = vec![0u8; cap];
+        let mut s = 0x2545_F491u32;
+        for b in data.iter_mut() {
+            s ^= s << 13;
+            s ^= s >> 17;
+            s ^= s << 5;
+            *b = s as u8;
+        }
+        let stego_png = LsbImage
+            .embed(&cover_png, &payload::frame(&data), &EmbedOpts::default())
+            .unwrap();
+        let stego = crate::image_io::decode_rgba(&stego_png).unwrap();
+
+        let r_clean = sample_pair_rate(&clean);
+        let r_stego = sample_pair_rate(&stego);
+        assert!(
+            r_clean < 0.5 && r_stego > 0.5,
+            "SPA should read clean≈0, embedded≈1: clean={r_clean} stego={r_stego}"
+        );
     }
 
     #[test]
