@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity() {
 /// the carrier medium, since a few image methods emit a non-PNG container
 /// (jpeg_jsteg produces a real JPEG).
 private fun outputName(methodId: String, media: String): String = when (methodId) {
-    "jpeg_jsteg" -> "stego.jpg"
+    "jpeg_jsteg", "jpeg_f5" -> "stego.jpg"
     else -> when (media) {
         "Image" -> "stego.png"
         "Audio" -> "stego.wav"

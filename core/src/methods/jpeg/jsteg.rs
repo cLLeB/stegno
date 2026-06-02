@@ -19,21 +19,12 @@
 
 use super::codec::{decode_scan, encode_scan};
 use super::container::{parse_jpeg, write_jpeg};
-use super::dct::{fdct_8x8, quantize, rgb_to_ycbcr};
-use super::tables::{CHROMA_QUANT, LUMA_QUANT, ZIGZAG};
-use crate::image_io::decode_rgba;
+use super::pipeline::{cover_to_blocks, Blocks};
 use crate::method::{Capacity, EmbedOpts, ExtractOpts, Media, Method};
 use crate::payload;
 use crate::StegnoError;
 
 pub struct JpegJsteg;
-
-/// Quantized, zig-zag-ordered coefficient blocks for the three components.
-struct Blocks {
-    y: Vec<[i32; 64]>,
-    cb: Vec<[i32; 64]>,
-    cr: Vec<[i32; 64]>,
-}
 
 /// A JSteg-usable coefficient (skips 0 and 1 so the usable set is LSB-invariant).
 #[inline]
@@ -50,68 +41,6 @@ fn set_lsb(c: i32, bit: u8) -> i32 {
 #[inline]
 fn read_lsb(c: i32) -> u8 {
     (c & 1) as u8
-}
-
-/// Natural-order block → zig-zag order.
-fn to_zigzag(nat: &[i32; 64]) -> [i32; 64] {
-    let mut zz = [0i32; 64];
-    for k in 0..64 {
-        zz[k] = nat[ZIGZAG[k]];
-    }
-    zz
-}
-
-/// Forward path: decode the cover image and produce quantized zig-zag blocks at
-/// 4:4:4 with edge pixels replicated to fill partial 8×8 blocks.
-fn cover_to_blocks(cover: &[u8]) -> Result<(u32, u32, Blocks), StegnoError> {
-    let img = decode_rgba(cover)?;
-    let (w, h) = (img.width, img.height);
-    let bw = (w as usize + 7) / 8;
-    let bh = (h as usize + 7) / 8;
-    let mut blocks = Blocks {
-        y: Vec::with_capacity(bw * bh),
-        cb: Vec::with_capacity(bw * bh),
-        cr: Vec::with_capacity(bw * bh),
-    };
-    let px = |x: usize, y: usize| -> (f64, f64, f64) {
-        // Clamp to the image edge so partial blocks replicate the border.
-        let cx = x.min(w as usize - 1);
-        let cy = y.min(h as usize - 1);
-        let i = (cy * w as usize + cx) * 4;
-        (
-            img.pixels[i] as f64,
-            img.pixels[i + 1] as f64,
-            img.pixels[i + 2] as f64,
-        )
-    };
-    for by in 0..bh {
-        for bx in 0..bw {
-            let mut yb = [0f64; 64];
-            let mut cbb = [0f64; 64];
-            let mut crb = [0f64; 64];
-            for r in 0..8 {
-                for c in 0..8 {
-                    let (rr, gg, bb) = px(bx * 8 + c, by * 8 + r);
-                    let (y, cb, cr) = rgb_to_ycbcr(rr, gg, bb);
-                    let idx = r * 8 + c;
-                    // Level shift by -128 before the DCT.
-                    yb[idx] = y - 128.0;
-                    cbb[idx] = cb - 128.0;
-                    crb[idx] = cr - 128.0;
-                }
-            }
-            blocks
-                .y
-                .push(to_zigzag(&quantize(&fdct_8x8(&yb), &LUMA_QUANT)));
-            blocks
-                .cb
-                .push(to_zigzag(&quantize(&fdct_8x8(&cbb), &CHROMA_QUANT)));
-            blocks
-                .cr
-                .push(to_zigzag(&quantize(&fdct_8x8(&crb), &CHROMA_QUANT)));
-        }
-    }
-    Ok((w, h, blocks))
 }
 
 /// Visit every component's AC coefficients in a fixed MCU order (Y, Cb, Cr; AC
@@ -247,7 +176,7 @@ impl Method for JpegJsteg {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::image_io::{encode_png, RgbaImage};
+    use crate::image_io::{decode_rgba, encode_png, RgbaImage};
 
     /// A textured cover with plenty of high-frequency content (→ many usable
     /// AC coefficients) so JSteg has capacity.

@@ -21,6 +21,7 @@ type SecretMode = "text" | "file";
 function outputExtension(methodId: string, media: string): string {
   switch (methodId) {
     case "jpeg_jsteg":
+    case "jpeg_f5":
       return "jpg";
   }
   switch (media) {
