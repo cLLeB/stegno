@@ -19,13 +19,13 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.stegno_core.MethodInfo
 import uniffi.stegno_core.Revealed
 import uniffi.stegno_core.Secret
 import uniffi.stegno_core.capacity
 import uniffi.stegno_core.embed
 import uniffi.stegno_core.extract
-
-private const val METHOD = "lsb_image"
+import uniffi.stegno_core.listMethods
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,9 +47,28 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/// Suggested output filename for a method's carrier medium.
+private fun outputName(media: String): String = when (media) {
+    "Image" -> "stego.png"
+    "Audio" -> "stego.wav"
+    "Text" -> "stego.txt"
+    else -> "stego.bin"
+}
+
 @Composable
 fun StegnoApp(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) {
     var tab by remember { mutableStateOf(0) }
+    var methods by remember { mutableStateOf<List<MethodInfo>>(emptyList()) }
+    var methodId by remember { mutableStateOf("lsb_image") }
+
+    LaunchedEffect(Unit) {
+        val ms = runCatching { withContext(Dispatchers.Default) { listMethods() } }.getOrDefault(emptyList())
+        methods = ms
+        if (ms.isNotEmpty() && ms.none { it.id == methodId }) methodId = ms.first().id
+    }
+
+    val media = methods.firstOrNull { it.id == methodId }?.media ?: "File"
+
     Column(
         Modifier
             .fillMaxSize()
@@ -58,17 +77,25 @@ fun StegnoApp(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) {
     ) {
         Text("Stegno", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Offline steganography · LSB image (PNG)",
+            "Offline steganography · ${methods.size} methods",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline
         )
         Spacer(Modifier.height(12.dp))
+
+        MethodSelector(methods, methodId, onSelect = { methodId = it })
+        Spacer(Modifier.height(12.dp))
+
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Hide") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Extract") })
         }
         Spacer(Modifier.height(16.dp))
-        if (tab == 0) HideTab(readUri, writeUri) else ExtractTab(readUri, writeUri)
+        if (tab == 0) {
+            HideTab(methodId, media, readUri, writeUri)
+        } else {
+            ExtractTab(methodId, readUri, writeUri)
+        }
         Spacer(Modifier.height(20.dp))
         Text(
             "Argon2id + AES-256-GCM · nothing leaves this device.",
@@ -78,8 +105,45 @@ fun StegnoApp(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HideTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) {
+fun MethodSelector(methods: List<MethodInfo>, selected: String, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val current = methods.firstOrNull { it.id == selected }
+    val label = current?.let { "${it.displayName} · ${it.media}" } ?: selected
+
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
+        OutlinedTextField(
+            value = label,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Method") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .menuAnchor()
+                .fillMaxWidth()
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            methods.forEach { m ->
+                DropdownMenuItem(
+                    text = { Text("${m.displayName} · ${m.media}") },
+                    onClick = {
+                        onSelect(m.id)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun HideTab(
+    methodId: String,
+    media: String,
+    readUri: (Uri) -> ByteArray,
+    writeUri: (Uri, ByteArray) -> Unit
+) {
     val scope = rememberCoroutineScope()
     var cover by remember { mutableStateOf<ByteArray?>(null) }
     var coverName by remember { mutableStateOf("") }
@@ -92,19 +156,23 @@ fun HideTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) {
     var status by remember { mutableStateOf<String?>(null) }
     var pendingStego by remember { mutableStateOf<ByteArray?>(null) }
 
+    // Recompute capacity whenever the cover or method changes.
+    LaunchedEffect(cover, methodId) {
+        val c = cover
+        cap = if (c == null) {
+            null
+        } else {
+            runCatching { withContext(Dispatchers.Default) { capacity(methodId, c).toLong() } }.getOrNull()
+        }
+    }
+
     val pickCover = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val bytes = readUri(uri)
-        cover = bytes
-        coverName = uri.lastPathSegment ?: "image"
+        cover = readUri(uri)
+        coverName = uri.lastPathSegment ?: "cover"
         status = null
-        scope.launch {
-            cap = runCatching {
-                withContext(Dispatchers.Default) { capacity(METHOD, bytes).toLong() }
-            }.getOrNull()
-        }
     }
     val pickSecret = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -113,7 +181,7 @@ fun HideTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) {
         secretFile = (uri.lastPathSegment ?: "file") to readUri(uri)
     }
     val saveStego = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("image/png")
+        ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
         val data = pendingStego
         if (uri != null && data != null) {
@@ -123,8 +191,8 @@ fun HideTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedButton(onClick = { pickCover.launch(arrayOf("image/*")) }, Modifier.fillMaxWidth()) {
-            Text(if (cover != null) "Cover: $coverName" else "Choose cover image…")
+        OutlinedButton(onClick = { pickCover.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth()) {
+            Text(if (cover != null) "Cover: $coverName" else "Choose cover file…")
         }
         cap?.let { Text("Capacity: ~$it bytes", color = MaterialTheme.colorScheme.primary) }
 
@@ -178,24 +246,28 @@ fun HideTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) {
                             val (n, b) = secretFile!!
                             Secret.File(n, b)
                         } else Secret.Text(text)
-                        withContext(Dispatchers.Default) { embed(METHOD, c, secret, pass) }
+                        withContext(Dispatchers.Default) { embed(methodId, c, secret, pass) }
                     }.onSuccess {
                         pendingStego = it
-                        saveStego.launch("stego.png")
+                        saveStego.launch(outputName(media))
                     }.onFailure { status = it.message ?: "Embedding failed" }
                     busy = false
                 }
             },
             enabled = canEmbed,
             modifier = Modifier.fillMaxWidth()
-        ) { Text(if (busy) "Embedding…" else "Hide & save PNG") }
+        ) { Text(if (busy) "Embedding…" else "Hide & save") }
 
         status?.let { Text(it) }
     }
 }
 
 @Composable
-fun ExtractTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) {
+fun ExtractTab(
+    methodId: String,
+    readUri: (Uri) -> ByteArray,
+    writeUri: (Uri, ByteArray) -> Unit
+) {
     val scope = rememberCoroutineScope()
     var stego by remember { mutableStateOf<ByteArray?>(null) }
     var stegoName by remember { mutableStateOf("") }
@@ -210,7 +282,7 @@ fun ExtractTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) 
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         stego = readUri(uri)
-        stegoName = uri.lastPathSegment ?: "image"
+        stegoName = uri.lastPathSegment ?: "stego"
         result = null
         error = null
     }
@@ -222,8 +294,8 @@ fun ExtractTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) 
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedButton(onClick = { pickStego.launch(arrayOf("image/png")) }, Modifier.fillMaxWidth()) {
-            Text(if (stego != null) "Stego: $stegoName" else "Choose stego PNG…")
+        OutlinedButton(onClick = { pickStego.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth()) {
+            Text(if (stego != null) "Stego: $stegoName" else "Choose stego file…")
         }
         OutlinedTextField(
             value = pass,
@@ -238,7 +310,7 @@ fun ExtractTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) 
                 busy = true; result = null; error = null
                 scope.launch {
                     runCatching {
-                        withContext(Dispatchers.Default) { extract(METHOD, s, pass) }
+                        withContext(Dispatchers.Default) { extract(methodId, s, pass) }
                     }.onSuccess { result = it }
                         .onFailure { error = it.message ?: "Extraction failed" }
                     busy = false

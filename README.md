@@ -28,8 +28,8 @@ data inside ordinary files, and (in later phases) detect it.
 | Key-seeded embedding | ✅ deterministic xoshiro256++ permutation keyed by passphrase |
 | Plausible-deniability decoy slot | ✅ `embed_with_decoy` — real + decoy in disjoint keyed regions |
 | Tests | ✅ 132 (unit + property + parity + deniability + text/file + audio + analysis) |
-| Tauri desktop | ✅ Hide/Extract UI wired to the core |
-| Native Android | ✅ Compose UI + UniFFI bindings + per-ABI `.so` |
+| Tauri desktop | ✅ Hide/Extract UI with method selector (all methods) |
+| Native Android | ✅ Compose UI with method selector + UniFFI bindings + per-ABI `.so` |
 
 ### Methods
 
