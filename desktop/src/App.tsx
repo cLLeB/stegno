@@ -22,6 +22,7 @@ function outputExtension(methodId: string, media: string): string {
   switch (methodId) {
     case "jpeg_jsteg":
     case "jpeg_f5":
+    case "jpeg_outguess":
       return "jpg";
   }
   switch (media) {

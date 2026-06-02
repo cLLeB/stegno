@@ -19,29 +19,12 @@
 
 use super::codec::{decode_scan, encode_scan};
 use super::container::{parse_jpeg, write_jpeg};
-use super::pipeline::{cover_to_blocks, Blocks};
+use super::pipeline::{cover_to_blocks, lsb_usable as usable, read_lsb, set_lsb, Blocks};
 use crate::method::{Capacity, EmbedOpts, ExtractOpts, Media, Method};
 use crate::payload;
 use crate::StegnoError;
 
 pub struct JpegJsteg;
-
-/// A JSteg-usable coefficient (skips 0 and 1 so the usable set is LSB-invariant).
-#[inline]
-fn usable(c: i32) -> bool {
-    c != 0 && c != 1
-}
-
-/// Overwrite the two's-complement LSB of `c` with `bit`.
-#[inline]
-fn set_lsb(c: i32, bit: u8) -> i32 {
-    (c & !1) | bit as i32
-}
-
-#[inline]
-fn read_lsb(c: i32) -> u8 {
-    (c & 1) as u8
-}
 
 /// Visit every component's AC coefficients in a fixed MCU order (Y, Cb, Cr; AC
 /// indices 1..64), calling `f` with a mutable reference to each. The order is

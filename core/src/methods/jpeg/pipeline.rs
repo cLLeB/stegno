@@ -47,6 +47,27 @@ pub fn ac_slot_count(num_blocks: usize) -> usize {
     num_blocks * 3 * 63
 }
 
+/// A coefficient usable for LSB-overwrite hiding (JSteg / OutGuess): skips `0`
+/// and `1` so the usable set is invariant under an LSB overwrite — a usable
+/// coefficient can never become `0`/`1`, and `0`/`1` are never touched. This lets
+/// the extractor re-derive the identical selection with no side information.
+#[inline]
+pub fn lsb_usable(c: i32) -> bool {
+    c != 0 && c != 1
+}
+
+/// Overwrite the two's-complement LSB of `c` with `bit`.
+#[inline]
+pub fn set_lsb(c: i32, bit: u8) -> i32 {
+    (c & !1) | bit as i32
+}
+
+/// The bit carried by a coefficient's LSB.
+#[inline]
+pub fn read_lsb(c: i32) -> u8 {
+    (c & 1) as u8
+}
+
 /// Decompose a flat AC slot index into `(block, component, coefficient)` with the
 /// coefficient in `1..64`. Inverse of the implicit ordering used by both methods.
 #[inline]

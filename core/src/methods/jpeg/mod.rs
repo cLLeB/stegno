@@ -6,8 +6,10 @@ pub mod dct;
 pub mod f5;
 pub mod huffman;
 pub mod jsteg;
+pub mod outguess;
 pub mod pipeline;
 pub mod tables;
 
 pub use f5::JpegF5;
 pub use jsteg::JpegJsteg;
+pub use outguess::JpegOutguess;

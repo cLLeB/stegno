@@ -19,7 +19,7 @@ data inside ordinary files, and (in later phases) detect it.
 |---|---|
 | `stegno-core` engine | ✅ Argon2id + AES-256-GCM, versioned framing, pluggable `Method` trait |
 | Image methods | ✅ `lsb_image`, `lsb_seeded`, `lsb_matching`, `edge_adaptive`, `pvd` |
-| Transform-domain | ✅ `dwt_haar` (reversible integer Haar detail-coefficient LSB), `jpeg_jsteg` + `jpeg_f5` (baseline-JPEG DCT) |
+| Transform-domain | ✅ `dwt_haar` (reversible integer Haar detail-coefficient LSB), `jpeg_jsteg` + `jpeg_f5` + `jpeg_outguess` (baseline-JPEG DCT) |
 | Content-adaptive | ✅ `adaptive_cost` (UNIWARD-flavored directional-residual cost) |
 | Text / file methods | ✅ `zero_width`, `whitespace`, `append_eof`, `png_text` |
 | Generative text | ✅ `mimic_words` (offline wordlist mimicry) |
@@ -27,7 +27,7 @@ data inside ordinary files, and (in later phases) detect it.
 | Steganalysis / quality | ✅ `quality` (MSE/PSNR/SSIM), `detect_lsb` (chi-square + RS + sample-pair) |
 | Key-seeded embedding | ✅ deterministic xoshiro256++ permutation keyed by passphrase |
 | Plausible-deniability decoy slot | ✅ `embed_with_decoy` — real + decoy in disjoint keyed regions |
-| Tests | ✅ 166 (unit + property + parity + deniability + text/file + audio + analysis + JPEG codec) |
+| Tests | ✅ 173 (unit + property + parity + deniability + text/file + audio + analysis + JPEG codec) |
 | Tauri desktop | ✅ Hide/Extract UI with method selector (all methods) |
 | Native Android | ✅ Compose UI with method selector + UniFFI bindings + per-ABI `.so` |
 
@@ -49,6 +49,7 @@ data inside ordinary files, and (in later phases) detect it.
 | `dwt_haar` | image | Haar wavelet detail LSB | reversible integer S-transform; embeds in detail band; overflow-safe |
 | `jpeg_jsteg` | image | JPEG DCT (JSteg) | LSB of non-{0,1} quantized AC coefficients; emits a real baseline JPEG; bit-exact |
 | `jpeg_f5` | image | JPEG DCT (F5) | parity by decrement-toward-zero (no JSteg histogram artefact); shrinkage-aware; key-seeded straddling; bit-exact |
+| `jpeg_outguess` | image | JPEG DCT (OutGuess) | keyed LSB walk + correction pass that restores the coefficient histogram (defeats chi-square); bit-exact |
 | `adaptive_cost` | image | content-adaptive cost | directional 2nd-order residual cost; fills cheapest (textured) first |
 | `mimic_words` | text | generative wordlist mimicry | emits word-salad encoding the payload; cover ignored |
 
@@ -114,7 +115,7 @@ cd android && ./gradlew assembleDebug
 | **1** ✅ | Spatial image suite (LSB-matching, PVD, edge-adaptive, key-seeded embedding) + plausible-deniability decoy slot |
 | **2** ✅ | Text & file-structure (zero-width Unicode, whitespace, append-after-EOF, PNG metadata, PNG/ZIP polyglot) |
 | **3** ◑ | Audio — WAV LSB ✅. Echo hiding & spread-spectrum deferred (see note) |
-| **4** ◑ | Transform-domain — reversible Haar-DWT ✅ + JPEG DCT JSteg ✅ + F5 ✅. OutGuess deferred (see note) |
+| **4** ✅ | Transform-domain — reversible Haar-DWT ✅ + JPEG DCT JSteg ✅ + F5 ✅ + OutGuess ✅ |
 | **5** ✅ | Detection / steganalysis — chi-square, RS, sample-pair, PSNR/SSIM/MSE |
 | **6** ◑ | Adaptive `adaptive_cost` ✅ + generative `mimic_words` ✅. STC matrix coding, deep-learning, and LLM text deferred (see note) |
 
@@ -146,10 +147,13 @@ both sides) and scatters the payload with a passphrase-keyed permutation. It
 remains bit-exact for the AES-GCM payload. The classic `(1,2ᵏ−1,k)` matrix-coding
 optimisation (fewer coefficient changes per bit) is a future efficiency add-on.
 
-**Deferred — OutGuess:** OutGuess's statistics-preserving correction pass (it
-restores the global DCT histogram after embedding) builds on the same coefficient
-codec and can slot in as a further `Method`; JSteg and F5 cover the core JPEG-DCT
-case for now.
+**OutGuess — implemented (`jpeg_outguess`):** embeds along a passphrase-keyed
+coefficient walk and then spends the leftover coefficients on a correction pass
+that restores the global DCT histogram (flipping over-represented values to their
+under-represented LSB-partners), defeating the chi-square attack that flags plain
+JSteg. The correction only touches coefficients after the message region, so
+recovery stays bit-exact. The three classical JPEG-DCT methods (JSteg, F5,
+OutGuess) now all share the in-house baseline-JPEG coefficient codec.
 
 **Deferred — research-grade:** full HUGO/WOW/S-UNIWARD use syndrome-trellis
 codes (STC) to minimise *total* distortion for a payload; `adaptive_cost`
