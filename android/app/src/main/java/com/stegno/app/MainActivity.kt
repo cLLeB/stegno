@@ -19,13 +19,19 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.stegno_core.DetectionReport
 import uniffi.stegno_core.MethodInfo
+import uniffi.stegno_core.QualityReport
 import uniffi.stegno_core.Revealed
 import uniffi.stegno_core.Secret
 import uniffi.stegno_core.capacity
+import uniffi.stegno_core.decoyCapacity
+import uniffi.stegno_core.detectLsb
 import uniffi.stegno_core.embed
+import uniffi.stegno_core.embedWithDecoy
 import uniffi.stegno_core.extract
 import uniffi.stegno_core.listMethods
+import uniffi.stegno_core.quality
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,18 +94,21 @@ fun StegnoApp(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) {
         )
         Spacer(Modifier.height(12.dp))
 
-        MethodSelector(methods, methodId, onSelect = { methodId = it })
-        Spacer(Modifier.height(12.dp))
+        if (tab != 2) {
+            MethodSelector(methods, methodId, onSelect = { methodId = it })
+            Spacer(Modifier.height(12.dp))
+        }
 
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Hide") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Extract") })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Analyze") })
         }
         Spacer(Modifier.height(16.dp))
-        if (tab == 0) {
-            HideTab(methodId, media, readUri, writeUri)
-        } else {
-            ExtractTab(methodId, readUri, writeUri)
+        when (tab) {
+            0 -> HideTab(methodId, media, readUri, writeUri)
+            1 -> ExtractTab(methodId, readUri, writeUri)
+            else -> AnalyzeTab(readUri)
         }
         Spacer(Modifier.height(20.dp))
         Text(
@@ -160,14 +169,22 @@ fun HideTab(
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     var pendingStego by remember { mutableStateOf<ByteArray?>(null) }
+    // Decoy mode: hide a second "fake" message under a different password.
+    var decoy by remember { mutableStateOf(false) }
+    var decoyText by remember { mutableStateOf("") }
+    var decoyPass by remember { mutableStateOf("") }
 
-    // Recompute capacity whenever the cover or method changes.
-    LaunchedEffect(cover, methodId) {
+    // Recompute capacity whenever the cover, method, or decoy toggle changes.
+    LaunchedEffect(cover, methodId, decoy) {
         val c = cover
         cap = if (c == null) {
             null
         } else {
-            runCatching { withContext(Dispatchers.Default) { capacity(methodId, c).toLong() } }.getOrNull()
+            runCatching {
+                withContext(Dispatchers.Default) {
+                    (if (decoy) decoyCapacity(c) else capacity(methodId, c)).toLong()
+                }
+            }.getOrNull()
         }
     }
 
@@ -199,26 +216,48 @@ fun HideTab(
         OutlinedButton(onClick = { pickCover.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth()) {
             Text(if (cover != null) "Cover: $coverName" else "Choose cover file…")
         }
-        cap?.let { Text("Capacity: ~$it bytes", color = MaterialTheme.colorScheme.primary) }
-
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            SegmentedButton(
-                selected = !useFile,
-                onClick = { useFile = false },
-                shape = SegmentedButtonDefaults.itemShape(0, 2)
-            ) { Text("Text") }
-            SegmentedButton(
-                selected = useFile,
-                onClick = { useFile = true },
-                shape = SegmentedButtonDefaults.itemShape(1, 2)
-            ) { Text("File") }
+        cap?.let {
+            Text(
+                if (decoy) "Capacity per message: ~$it bytes" else "Capacity: ~$it bytes",
+                color = MaterialTheme.colorScheme.primary
+            )
         }
 
-        if (!useFile) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = decoy, onCheckedChange = { decoy = it })
+            Spacer(Modifier.width(8.dp))
+            Text("Add a decoy message")
+        }
+        if (decoy) {
+            Text(
+                "Hides two messages in one photo. The real password reveals the real " +
+                    "message; the decoy password reveals a harmless fake — so you can safely " +
+                    "hand over the decoy password if forced. Saved as a PNG photo.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+
+        if (!decoy) {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = !useFile,
+                    onClick = { useFile = false },
+                    shape = SegmentedButtonDefaults.itemShape(0, 2)
+                ) { Text("Text") }
+                SegmentedButton(
+                    selected = useFile,
+                    onClick = { useFile = true },
+                    shape = SegmentedButtonDefaults.itemShape(1, 2)
+                ) { Text("File") }
+            }
+        }
+
+        if (decoy || !useFile) {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                label = { Text("Secret message") },
+                label = { Text(if (decoy) "Real message" else "Secret message") },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3
             )
@@ -231,14 +270,35 @@ fun HideTab(
         OutlinedTextField(
             value = pass,
             onValueChange = { pass = it },
-            label = { Text("Passphrase") },
+            label = { Text(if (decoy) "Real password" else "Passphrase") },
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(),
             modifier = Modifier.fillMaxWidth()
         )
 
+        if (decoy) {
+            OutlinedTextField(
+                value = decoyText,
+                onValueChange = { decoyText = it },
+                label = { Text("Decoy message (the fake one)") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2
+            )
+            OutlinedTextField(
+                value = decoyPass,
+                onValueChange = { decoyPass = it },
+                label = { Text("Decoy password (must differ)") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
         val canEmbed = !busy && cover != null && pass.isNotEmpty() &&
-            (if (useFile) secretFile != null else text.isNotEmpty())
+            if (decoy) {
+                text.isNotEmpty() && decoyText.isNotEmpty() && decoyPass.isNotEmpty() && decoyPass != pass
+            } else {
+                if (useFile) secretFile != null else text.isNotEmpty()
+            }
 
         Button(
             onClick = {
@@ -247,14 +307,20 @@ fun HideTab(
                 status = null
                 scope.launch {
                     runCatching {
-                        val secret = if (useFile) {
-                            val (n, b) = secretFile!!
-                            Secret.File(n, b)
-                        } else Secret.Text(text)
-                        withContext(Dispatchers.Default) { embed(methodId, c, secret, pass) }
+                        withContext(Dispatchers.Default) {
+                            if (decoy) {
+                                embedWithDecoy(c, Secret.Text(text), pass, Secret.Text(decoyText), decoyPass)
+                            } else {
+                                val secret = if (useFile) {
+                                    val (n, b) = secretFile!!
+                                    Secret.File(n, b)
+                                } else Secret.Text(text)
+                                embed(methodId, c, secret, pass)
+                            }
+                        }
                     }.onSuccess {
                         pendingStego = it
-                        saveStego.launch(outputName(methodId, media))
+                        saveStego.launch(if (decoy) "stego.png" else outputName(methodId, media))
                     }.onFailure { status = it.message ?: "Embedding failed" }
                     busy = false
                 }
@@ -344,6 +410,144 @@ fun ExtractTab(
             }
             null -> {}
         }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    }
+}
+
+/// Plain-language verdict (text + level 0=ok,1=warn,2=bad) for the LSB detector.
+private fun suspicionText(d: DetectionReport): Pair<String, Int> {
+    val rate = d.samplePairRate
+    return when {
+        rate < 0.05 && d.chiSquareP < 0.5 -> "✓ Looks clean — no obvious hidden data." to 0
+        rate < 0.2 && d.chiSquareP < 0.9 -> "⚠ Possibly hiding data — some suspicious signs." to 1
+        else -> "⛔ Likely hiding data — strong signs of LSB embedding." to 2
+    }
+}
+
+/// Plain-language verdict for a quality comparison. PSNR is ∞ when identical.
+private fun qualityText(q: QualityReport): Pair<String, Int> {
+    val psnr = if (q.psnrDb.isFinite()) q.psnrDb else Double.POSITIVE_INFINITY
+    return when {
+        psnr >= 45.0 || q.ssim >= 0.999 -> "✓ Looks identical to the eye." to 0
+        psnr >= 35.0 -> "✓ Very similar — changes are hard to spot." to 0
+        psnr >= 28.0 -> "⚠ Noticeably different on close inspection." to 1
+        else -> "⛔ Clearly different." to 2
+    }
+}
+
+@Composable
+private fun verdictColor(level: Int) = when (level) {
+    0 -> MaterialTheme.colorScheme.primary
+    1 -> MaterialTheme.colorScheme.tertiary
+    else -> MaterialTheme.colorScheme.error
+}
+
+@Composable
+fun AnalyzeTab(readUri: (Uri) -> ByteArray) {
+    val scope = rememberCoroutineScope()
+    var scan by remember { mutableStateOf<ByteArray?>(null) }
+    var detection by remember { mutableStateOf<DetectionReport?>(null) }
+    var orig by remember { mutableStateOf<ByteArray?>(null) }
+    var edited by remember { mutableStateOf<ByteArray?>(null) }
+    var qual by remember { mutableStateOf<QualityReport?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    val pickScan = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scan = readUri(uri); detection = null; error = null
+    }
+    val pickOrig = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        orig = readUri(uri); qual = null; error = null
+    }
+    val pickEdited = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        edited = readUri(uri); qual = null; error = null
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Scan a photo for hidden data", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Checks a photo for the most common hiding method (LSB). Best on PNG photos.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+        OutlinedButton(onClick = { pickScan.launch(arrayOf("image/*")) }, Modifier.fillMaxWidth()) {
+            Text(if (scan != null) "Photo chosen ✓" else "Choose a photo…")
+        }
+        Button(
+            onClick = {
+                val s = scan ?: return@Button
+                busy = true; error = null
+                scope.launch {
+                    runCatching { withContext(Dispatchers.Default) { detectLsb(s) } }
+                        .onSuccess { detection = it }
+                        .onFailure { error = it.message ?: "Scan failed" }
+                    busy = false
+                }
+            },
+            enabled = !busy && scan != null,
+            modifier = Modifier.fillMaxWidth()
+        ) { Text(if (busy) "Scanning…" else "Scan") }
+        detection?.let { d ->
+            val (txt, level) = suspicionText(d)
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(txt, color = verdictColor(level))
+                    Text(
+                        "Embedding-rate estimate ${(d.samplePairRate * 100).toInt()}% · " +
+                            "chi-square ${(d.chiSquareP * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+        Text("Compare two photos", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Pick an original and an edited copy to see how much they differ.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+        OutlinedButton(onClick = { pickOrig.launch(arrayOf("image/*")) }, Modifier.fillMaxWidth()) {
+            Text(if (orig != null) "Original chosen ✓" else "Choose the original…")
+        }
+        OutlinedButton(onClick = { pickEdited.launch(arrayOf("image/*")) }, Modifier.fillMaxWidth()) {
+            Text(if (edited != null) "Edited copy chosen ✓" else "Choose the edited copy…")
+        }
+        Button(
+            onClick = {
+                val o = orig ?: return@Button
+                val e = edited ?: return@Button
+                busy = true; error = null
+                scope.launch {
+                    runCatching { withContext(Dispatchers.Default) { quality(o, e) } }
+                        .onSuccess { qual = it }
+                        .onFailure { error = it.message ?: "Compare failed" }
+                    busy = false
+                }
+            },
+            enabled = !busy && orig != null && edited != null,
+            modifier = Modifier.fillMaxWidth()
+        ) { Text(if (busy) "Comparing…" else "Compare") }
+        qual?.let { q ->
+            val (txt, level) = qualityText(q)
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(txt, color = verdictColor(level))
+                    val psnr = if (q.psnrDb.isFinite()) "%.1f".format(q.psnrDb) else "∞"
+                    Text(
+                        "PSNR $psnr dB · similarity ${"%.1f".format(q.ssim * 100)}%",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        }
+
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
 }

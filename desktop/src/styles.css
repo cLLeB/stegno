@@ -113,6 +113,32 @@ input:focus {
   font-size: 11px;
   color: #748ffc;
 }
+.decoy-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #c1c2c5;
+  cursor: pointer;
+  user-select: none;
+}
+.decoy-toggle input {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+.hint {
+  margin: -2px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #909296;
+}
+.section {
+  margin: 8px 0 -2px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e9ecef;
+}
 .ok {
   color: #51cf66;
   font-size: 12px;

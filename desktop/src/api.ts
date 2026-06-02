@@ -42,12 +42,56 @@ export function embedFile(
   });
 }
 
+/** Usable bytes per slot when hiding a real + decoy message (≈ half the image each). */
+export function decoyCapacity(cover: number[]): Promise<number> {
+  return invoke<number>("decoy_capacity", { cover });
+}
+
+/**
+ * Hide a real message and a decoy message in one photo, each under its own
+ * password. Revealing later: the real password shows the real message, the
+ * decoy password shows the decoy. Always outputs a PNG photo.
+ */
+export function embedTextWithDecoy(
+  cover: number[],
+  realText: string,
+  realPassphrase: string,
+  decoyText: string,
+  decoyPassphrase: string
+): Promise<number[]> {
+  return invoke<number[]>("embed_text_with_decoy", {
+    cover,
+    realText,
+    realPassphrase,
+    decoyText,
+    decoyPassphrase,
+  });
+}
+
 export function extract(
   methodId: string,
   stego: number[],
   passphrase: string
 ): Promise<Revealed> {
   return invoke<Revealed>("extract", { methodId, stego, passphrase });
+}
+
+export type Detection = {
+  chiSquareP: number;
+  rsRegularityGap: number;
+  samplePairRate: number;
+};
+
+/** Scan a photo for signs of hidden LSB data. */
+export function detectLsb(image: number[]): Promise<Detection> {
+  return invoke<Detection>("detect_lsb", { image });
+}
+
+export type Quality = { mse: number; psnrDb: number; ssim: number };
+
+/** Compare an original photo with a modified one. */
+export function quality(cover: number[], stego: number[]): Promise<Quality> {
+  return invoke<Quality>("quality", { cover, stego });
 }
 
 export function readFile(path: string): Promise<number[]> {

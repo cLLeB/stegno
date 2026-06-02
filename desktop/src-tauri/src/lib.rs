@@ -9,7 +9,11 @@ pub fn run() {
             commands::capacity,
             commands::embed_text,
             commands::embed_file,
+            commands::embed_text_with_decoy,
+            commands::decoy_capacity,
             commands::extract,
+            commands::detect_lsb,
+            commands::quality,
             commands::read_file,
             commands::write_file,
         ])
