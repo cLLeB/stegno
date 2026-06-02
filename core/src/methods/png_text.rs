@@ -65,7 +65,7 @@ impl Method for PngText {
         "png_text"
     }
     fn display_name(&self) -> &'static str {
-        "PNG Metadata Chunk"
+        "Photo (PNG) — in the file info"
     }
     fn media(&self) -> Media {
         Media::Image

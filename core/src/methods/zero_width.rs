@@ -29,7 +29,7 @@ impl Method for ZeroWidth {
         "zero_width"
     }
     fn display_name(&self) -> &'static str {
-        "Zero-Width Unicode (text)"
+        "Invisible characters in text"
     }
     fn media(&self) -> Media {
         Media::Text

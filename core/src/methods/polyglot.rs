@@ -33,7 +33,7 @@ impl Method for Polyglot {
         "polyglot"
     }
     fn display_name(&self) -> &'static str {
-        "PNG/ZIP Polyglot"
+        "Photo that opens as a ZIP too"
     }
     fn media(&self) -> Media {
         Media::Image // output still opens as the cover image

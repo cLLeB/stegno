@@ -50,7 +50,7 @@ impl Method for JpegF5 {
         "jpeg_f5"
     }
     fn display_name(&self) -> &'static str {
-        "JPEG DCT (F5)"
+        "Photo (JPEG) — harder to detect"
     }
     fn media(&self) -> Media {
         Media::Image

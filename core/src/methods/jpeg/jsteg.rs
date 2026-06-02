@@ -59,7 +59,7 @@ impl Method for JpegJsteg {
         "jpeg_jsteg"
     }
     fn display_name(&self) -> &'static str {
-        "JPEG DCT (JSteg)"
+        "Photo (JPEG) — basic"
     }
     fn media(&self) -> Media {
         Media::Image

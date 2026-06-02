@@ -23,7 +23,7 @@ impl Method for AppendEof {
         "append_eof"
     }
     fn display_name(&self) -> &'static str {
-        "Append after EOF (any file)"
+        "Add onto any file"
     }
     fn media(&self) -> Media {
         Media::File

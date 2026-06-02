@@ -93,7 +93,7 @@ impl Method for AdaptiveCost {
         "adaptive_cost"
     }
     fn display_name(&self) -> &'static str {
-        "Content-Adaptive Cost (PNG)"
+        "Photo (PNG) — smartest stealth"
     }
     fn media(&self) -> Media {
         Media::Image

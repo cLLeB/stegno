@@ -20,7 +20,7 @@ impl Method for LsbImage {
         "lsb_image"
     }
     fn display_name(&self) -> &'static str {
-        "LSB Image (PNG, sequential)"
+        "Photo (PNG) — most hiding space"
     }
     fn media(&self) -> Media {
         Media::Image

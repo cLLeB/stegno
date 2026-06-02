@@ -17,7 +17,7 @@ impl Method for LsbSeeded {
         "lsb_seeded"
     }
     fn display_name(&self) -> &'static str {
-        "LSB Image (PNG, key-seeded)"
+        "Photo (PNG) — password-scrambled"
     }
     fn media(&self) -> Media {
         Media::Image

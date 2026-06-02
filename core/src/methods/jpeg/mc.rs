@@ -57,7 +57,7 @@ impl Method for JpegMc {
         "jpeg_mc"
     }
     fn display_name(&self) -> &'static str {
-        "JPEG DCT (Matrix Coding)"
+        "Photo (JPEG) — fewest changes"
     }
     fn media(&self) -> Media {
         Media::Image

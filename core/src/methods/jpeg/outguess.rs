@@ -64,7 +64,7 @@ impl Method for JpegOutguess {
         "jpeg_outguess"
     }
     fn display_name(&self) -> &'static str {
-        "JPEG DCT (OutGuess)"
+        "Photo (JPEG) — extra stealthy"
     }
     fn media(&self) -> Media {
         Media::Image

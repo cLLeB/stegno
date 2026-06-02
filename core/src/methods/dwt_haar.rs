@@ -86,7 +86,7 @@ impl Method for DwtHaar {
         "dwt_haar"
     }
     fn display_name(&self) -> &'static str {
-        "Haar Wavelet Detail LSB (PNG)"
+        "Photo (PNG) — advanced hide"
     }
     fn media(&self) -> Media {
         Media::Image

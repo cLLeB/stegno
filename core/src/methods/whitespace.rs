@@ -24,7 +24,7 @@ impl Method for Whitespace {
         "whitespace"
     }
     fn display_name(&self) -> &'static str {
-        "Trailing Whitespace (text)"
+        "Hidden spaces in text"
     }
     fn media(&self) -> Media {
         Media::Text

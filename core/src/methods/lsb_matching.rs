@@ -55,7 +55,7 @@ impl Method for LsbMatching {
         "lsb_matching"
     }
     fn display_name(&self) -> &'static str {
-        "LSB Matching (PNG, ±1)"
+        "Photo (PNG) — harder to detect"
     }
     fn media(&self) -> Media {
         Media::Image

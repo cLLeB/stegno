@@ -34,7 +34,7 @@ impl Method for MimicWords {
         "mimic_words"
     }
     fn display_name(&self) -> &'static str {
-        "Word Mimicry (generated text)"
+        "Disguised as random words"
     }
     fn media(&self) -> Media {
         Media::Text

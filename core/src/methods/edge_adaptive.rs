@@ -99,7 +99,7 @@ impl Method for EdgeAdaptive {
         "edge_adaptive"
     }
     fn display_name(&self) -> &'static str {
-        "Edge-Adaptive LSB (PNG)"
+        "Photo (PNG) — hides in busy areas"
     }
     fn media(&self) -> Media {
         Media::Image

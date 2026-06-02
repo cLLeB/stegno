@@ -116,7 +116,7 @@ impl Method for Pvd {
         "pvd"
     }
     fn display_name(&self) -> &'static str {
-        "Pixel-Value Differencing (PNG)"
+        "Photo (PNG) — extra space"
     }
     fn media(&self) -> Media {
         Media::Image

@@ -80,7 +80,7 @@ impl Method for WavLsb {
         "wav_lsb"
     }
     fn display_name(&self) -> &'static str {
-        "WAV LSB (audio)"
+        "Audio clip (WAV)"
     }
     fn media(&self) -> Media {
         Media::Audio
