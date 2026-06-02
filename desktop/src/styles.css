@@ -56,6 +56,11 @@ header .sub {
   background: #2b303b;
   color: #fff;
 }
+.tabs button:disabled,
+.seg button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 .panel {
   display: flex;

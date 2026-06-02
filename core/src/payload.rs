@@ -8,16 +8,24 @@
 
 use crate::crypto::CRYPTO_OVERHEAD;
 use crate::StegnoError;
+use serde::{Deserialize, Serialize};
 
 const MAGIC: [u8; 4] = *b"STG0";
 const VERSION: u8 = 1;
 const HDR_LEN: usize = 4 + 1 + 1 + 1 + 4; // magic + version + flags + slot + len
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record, Serialize, Deserialize)]
+pub struct FileRecord {
+    pub name: String,
+    pub bytes: Vec<u8>,
+}
 
 /// A secret the user wants to hide.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum Secret {
     Text { text: String },
     File { name: String, bytes: Vec<u8> },
+    Files { files: Vec<FileRecord> },
 }
 
 /// The result of an extraction.
@@ -26,6 +34,7 @@ pub enum Revealed {
     None,
     Text { text: String },
     File { name: String, bytes: Vec<u8> },
+    Files { files: Vec<FileRecord> },
 }
 
 /// Bytes added on top of the encrypted secret by framing + crypto.
@@ -54,6 +63,18 @@ pub fn serialize_secret(s: &Secret) -> Vec<u8> {
             v.extend_from_slice(bytes);
             v
         }
+        Secret::Files { files } => {
+            let mut v = vec![0x02u8];
+            v.extend_from_slice(&(files.len() as u16).to_be_bytes());
+            for f in files {
+                let nb = f.name.as_bytes();
+                v.extend_from_slice(&(nb.len() as u16).to_be_bytes());
+                v.extend_from_slice(nb);
+                v.extend_from_slice(&(f.bytes.len() as u32).to_be_bytes());
+                v.extend_from_slice(&f.bytes);
+            }
+            v
+        }
     }
 }
 
@@ -79,6 +100,44 @@ pub fn deserialize_secret(inner: &[u8]) -> Result<Secret, StegnoError> {
                 name,
                 bytes: inner[3 + nlen..].to_vec(),
             })
+        }
+        0x02 => {
+            if inner.len() < 3 {
+                return Err(StegnoError::CorruptPayload);
+            }
+            let num_files = u16::from_be_bytes([inner[1], inner[2]]) as usize;
+            let mut offset = 3;
+            let mut files = Vec::with_capacity(num_files);
+            for _ in 0..num_files {
+                if offset + 2 > inner.len() {
+                    return Err(StegnoError::CorruptPayload);
+                }
+                let nlen = u16::from_be_bytes([inner[offset], inner[offset + 1]]) as usize;
+                offset += 2;
+                if offset + nlen > inner.len() {
+                    return Err(StegnoError::CorruptPayload);
+                }
+                let name = String::from_utf8(inner[offset..offset + nlen].to_vec())
+                    .map_err(|_| StegnoError::CorruptPayload)?;
+                offset += nlen;
+                if offset + 4 > inner.len() {
+                    return Err(StegnoError::CorruptPayload);
+                }
+                let flen = u32::from_be_bytes([
+                    inner[offset],
+                    inner[offset + 1],
+                    inner[offset + 2],
+                    inner[offset + 3],
+                ]) as usize;
+                offset += 4;
+                if offset + flen > inner.len() {
+                    return Err(StegnoError::CorruptPayload);
+                }
+                let bytes = inner[offset..offset + flen].to_vec();
+                offset += flen;
+                files.push(FileRecord { name, bytes });
+            }
+            Ok(Secret::Files { files })
         }
         _ => Err(StegnoError::CorruptPayload),
     }

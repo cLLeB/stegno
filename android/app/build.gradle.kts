@@ -46,6 +46,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("androidx.documentfile:documentfile:1.0.1")
 
     // UniFFI runtime: JNA (aar variant ships the native libs for all ABIs).
     implementation("net.java.dev.jna:jna:5.14.0@aar")

@@ -17,6 +17,12 @@ pub mod seed;
 use method::{EmbedOpts, ExtractOpts};
 use payload::{Revealed, Secret};
 use seed::{derive_seed, Slot};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, uniffi::Record, Serialize, Deserialize)]
+pub struct ByteChunk {
+    pub bytes: Vec<u8>,
+}
 
 uniffi::setup_scaffolding!();
 
@@ -237,6 +243,7 @@ fn revealed_from_inner(inner: &[u8]) -> Result<Revealed, StegnoError> {
     Ok(match payload::deserialize_secret(inner)? {
         Secret::Text { text } => Revealed::Text { text },
         Secret::File { name, bytes } => Revealed::File { name, bytes },
+        Secret::Files { files } => Revealed::Files { files },
     })
 }
 
@@ -264,4 +271,117 @@ fn try_decoy_slots(stego: &[u8], passphrase: &str) -> Result<Option<Revealed>, S
         }
     }
     Ok(None)
+}
+
+/// Split a secret into multiple parts and embed them into multiple cover files.
+/// N covers must be provided. The secret is encrypted and split into N chunks.
+/// Each chunk is embedded into one cover. All resulting stego files are required
+/// to reconstruct the secret.
+#[uniffi::export]
+pub fn embed_split(
+    method_id: String,
+    covers: Vec<ByteChunk>,
+    secret: Secret,
+    passphrase: String,
+) -> Result<Vec<ByteChunk>, StegnoError> {
+    if covers.is_empty() {
+        return Err(StegnoError::Internal("at least one cover required".into()));
+    }
+    let m = registry::lookup(&method_id)
+        .ok_or_else(|| StegnoError::Internal("unknown method".into()))?;
+
+    let inner = payload::serialize_secret(&secret);
+    let sealed = crypto::seal(&inner, &passphrase).map_err(|_| StegnoError::Internal("seal".into()))?;
+
+    let num_parts = covers.len();
+    if num_parts > 255 {
+        return Err(StegnoError::Internal("too many covers (max 255)".into()));
+    }
+
+    // Split the sealed ciphertext into chunks
+    let chunk_size = (sealed.len() + num_parts - 1) / num_parts;
+    let mut chunks = Vec::with_capacity(num_parts);
+    for (i, chunk) in sealed.chunks(chunk_size).enumerate() {
+        let mut chunk_with_meta = vec![num_parts as u8, i as u8];
+        chunk_with_meta.extend_from_slice(chunk);
+        chunks.push(chunk_with_meta);
+    }
+
+    let opts = EmbedOpts {
+        seed: Some(derive_seed(&passphrase, Slot::Primary)),
+    };
+
+    let mut stegos = Vec::with_capacity(num_parts);
+    for (i, cover) in covers.iter().enumerate() {
+        let chunk_with_meta = &chunks[i];
+        let framed = payload::frame(chunk_with_meta);
+        let stego = m.embed(&cover.bytes, &framed, &opts)?;
+        stegos.push(ByteChunk { bytes: stego });
+    }
+
+    Ok(stegos)
+}
+
+/// Extract a split secret from multiple stego files.
+/// All N parts must be provided to reconstruct the secret.
+#[uniffi::export]
+pub fn extract_split(
+    method_id: String,
+    stegos: Vec<ByteChunk>,
+    passphrase: String,
+) -> Result<Revealed, StegnoError> {
+    if stegos.is_empty() {
+        return Err(StegnoError::Internal("at least one stego file required".into()));
+    }
+    let m = registry::lookup(&method_id)
+        .ok_or_else(|| StegnoError::Internal("unknown method".into()))?;
+
+    let xopts = ExtractOpts {
+        seed: Some(derive_seed(&passphrase, Slot::Primary)),
+    };
+
+    let mut parts: Vec<Option<Vec<u8>>> = Vec::new();
+    let mut total_parts = 0;
+
+    for stego in &stegos {
+        if let Some(stream) = m.extract(&stego.bytes, &xopts)? {
+            if let Some(framed_body) = payload::unframe(&stream)? {
+                if framed_body.len() < 2 {
+                    return Err(StegnoError::CorruptPayload);
+                }
+                let expected_total = framed_body[0] as usize;
+                let index = framed_body[1] as usize;
+
+                if expected_total == 0 || index >= expected_total {
+                    return Err(StegnoError::CorruptPayload);
+                }
+
+                if total_parts == 0 {
+                    total_parts = expected_total;
+                    parts.resize(total_parts, None);
+                } else if total_parts != expected_total {
+                    return Err(StegnoError::CorruptPayload);
+                }
+
+                if parts[index].is_none() {
+                    parts[index] = Some(framed_body[2..].to_vec());
+                }
+            }
+        }
+    }
+
+    if total_parts == 0 || parts.iter().any(|p| p.is_none()) {
+        return Err(StegnoError::NoHiddenData);
+    }
+
+    // Reassemble ciphertext
+    let mut sealed = Vec::new();
+    for part in parts {
+        sealed.extend_from_slice(&part.unwrap());
+    }
+
+    match crypto::open(&sealed, &passphrase) {
+        Ok(inner) => revealed_from_inner(&inner),
+        Err(_) => Err(StegnoError::AuthFailed),
+    }
 }

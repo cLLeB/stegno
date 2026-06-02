@@ -4,10 +4,11 @@ import {
   capacity,
   decoyCapacity,
   detectLsb,
-  embedFile,
-  embedText,
-  embedTextWithDecoy,
+  embedSecret,
+  embedSplit,
+  embedWithDecoy,
   extract,
+  extractSplit,
   listMethods,
   quality,
   readFile,
@@ -20,6 +21,10 @@ import {
 
 type Tab = "hide" | "extract" | "analyze";
 type SecretMode = "text" | "file";
+
+function textBytes(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
 
 /// Output file extension for a method. Most image methods emit PNG, but a few
 /// produce a different container (e.g. jpeg_jsteg emits a real JPEG), so the
@@ -111,69 +116,135 @@ interface HideTabProps {
 }
 
 function HideTab({ methodId, media }: HideTabProps) {
-  const [cover, setCover] = useState<number[] | null>(null);
-  const [coverName, setCoverName] = useState("");
+  const [covers, setCovers] = useState<{ name: string; bytes: number[] }[]>([]);
+  const cover = covers.length > 0 ? covers[0].bytes : null;
   const [cap, setCap] = useState<number | null>(null);
-  const [mode, setMode] = useState<SecretMode>("text");
-  const [text, setText] = useState("");
-  const [file, setFile] = useState<{ name: string; bytes: number[] } | null>(null);
+  
+  const [splitMode, setSplitMode] = useState(false);
+  const [realMode, setRealMode] = useState<SecretMode>("text");
+  const [realText, setRealText] = useState("");
+  const [realFiles, setRealFiles] = useState<{ name: string; bytes: number[] }[]>([]);
   const [pass, setPass] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  
   // Decoy mode: hide a second "fake" message under a different password.
   const [decoy, setDecoy] = useState(false);
+  const [decoyMode, setDecoyMode] = useState<SecretMode>("text");
   const [decoyText, setDecoyText] = useState("");
+  const [decoyFiles, setDecoyFiles] = useState<{ name: string; bytes: number[] }[]>([]);
   const [decoyPass, setDecoyPass] = useState("");
 
-  // Recompute capacity whenever the cover, method, or decoy toggle changes.
-  // Decoy mode always uses LSB-in-photo and reports per-message capacity.
   useEffect(() => {
-    if (!cover) {
+    if (covers.length === 0) {
       setCap(null);
       return;
     }
-    const p = decoy ? decoyCapacity(cover) : capacity(methodId, cover);
+    if (splitMode) {
+      Promise.all(covers.map(c => capacity(methodId, c.bytes)))
+        .then(caps => setCap(Math.min(...caps) * covers.length))
+        .catch(() => setCap(null));
+      return;
+    }
+    const p = decoy ? decoyCapacity(covers[0].bytes) : capacity(methodId, covers[0].bytes);
     p.then(setCap).catch(() => setCap(null));
-  }, [cover, methodId, decoy]);
+  }, [covers, methodId, decoy, splitMode]);
 
   async function pickCover() {
-    const path = await open({ multiple: false });
-    if (typeof path !== "string") return;
-    const bytes = await readFile(path);
-    setCover(bytes);
-    setCoverName(path.split(/[\\/]/).pop() ?? "cover");
+    const paths = await open({ multiple: splitMode });
+    if (!paths) return;
+    const pathsArr = Array.isArray(paths) ? paths : [paths];
+    const results = await Promise.all(
+      pathsArr.map(async (p) => ({
+        name: p.split(/[\\/]/).pop() ?? "cover",
+        bytes: await readFile(p),
+      }))
+    );
+    setCovers(results);
     setMsg(null);
     setErr(null);
   }
 
-  async function pickSecretFile() {
-    const path = await open({ multiple: false });
-    if (typeof path !== "string") return;
-    const bytes = await readFile(path);
-    setFile({ name: path.split(/[\\/]/).pop() ?? "file", bytes });
+  async function pickRealFile() {
+    const paths = await open({ multiple: true });
+    if (!paths) return;
+    const pathsArr = Array.isArray(paths) ? paths : [paths];
+    const results = await Promise.all(
+      pathsArr.map(async (p) => ({
+        name: p.split(/[\\/]/).pop() ?? "file",
+        bytes: await readFile(p),
+      }))
+    );
+    setRealFiles(results);
+  }
+
+  async function pickDecoyFile() {
+    const paths = await open({ multiple: true });
+    if (!paths) return;
+    const pathsArr = Array.isArray(paths) ? paths : [paths];
+    const results = await Promise.all(
+      pathsArr.map(async (p) => ({
+        name: p.split(/[\\/]/).pop() ?? "file",
+        bytes: await readFile(p),
+      }))
+    );
+    setDecoyFiles(results);
   }
 
   async function doEmbed() {
-    if (!cover || !pass) return;
+    if (covers.length === 0 || !pass) return;
     setBusy(true);
     setMsg(null);
     setErr(null);
     try {
-      // Decoy mode always produces a PNG photo (real + decoy via LSB).
-      const out = decoy
-        ? await embedTextWithDecoy(cover, text, pass, decoyText, decoyPass)
-        : mode === "text"
-          ? await embedText(methodId, cover, text, pass)
-          : await embedFile(methodId, cover, file!.name, file!.bytes, pass);
-      const ext = decoy ? "png" : outputExtension(methodId, media);
-      const path = await save({
-        defaultPath: `stego.${ext}`,
-        filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
-      });
-      if (typeof path === "string") {
-        await writeFile(path, out);
-        setMsg(`Saved ${out.length.toLocaleString()} bytes → ${path}`);
+      if (splitMode) {
+        const secretInput = realMode === "text"
+          ? { kind: "text" as const, text: realText }
+          : { kind: "files" as const, files: realFiles };
+        const outList = await embedSplit(methodId, covers.map(c => c.bytes), secretInput, pass);
+        
+        for (let i = 0; i < outList.length; i++) {
+          const out = outList[i];
+          const ext = outputExtension(methodId, media);
+          const path = await save({
+            defaultPath: `stego_part${i + 1}.${ext}`,
+            filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+          });
+          if (typeof path === "string") {
+            await writeFile(path, out);
+          }
+        }
+        setMsg(`Saved ${outList.length} split files.`);
+      } else {
+        const secretInput = realMode === "text"
+          ? { kind: "text" as const, text: realText }
+          : realFiles.length === 1
+            ? { kind: "file" as const, name: realFiles[0].name, bytes: realFiles[0].bytes }
+            : { kind: "files" as const, files: realFiles };
+            
+        let out;
+        if (decoy) {
+          const decoyInput = decoyMode === "text"
+            ? { kind: "text" as const, text: decoyText }
+            : decoyFiles.length === 1
+              ? { kind: "file" as const, name: decoyFiles[0].name, bytes: decoyFiles[0].bytes }
+              : { kind: "files" as const, files: decoyFiles };
+          out = await embedWithDecoy(cover!, secretInput, pass, decoyInput, decoyPass);
+        } else {
+          // If we have single file or text, embedSecret handles it natively via api.ts wrapper
+          out = await embedSecret(methodId, cover!, secretInput, pass);
+        }
+        
+        const ext = decoy ? "png" : outputExtension(methodId, media);
+        const path = await save({
+          defaultPath: `stego.${ext}`,
+          filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+        });
+        if (typeof path === "string") {
+          await writeFile(path, out);
+          setMsg(`Saved ${out.length.toLocaleString()} bytes → ${path}`);
+        }
       }
     } catch (e) {
       setErr(String(e));
@@ -181,31 +252,49 @@ function HideTab({ methodId, media }: HideTabProps) {
     setBusy(false);
   }
 
+  const realSize = realMode === "text" ? textBytes(realText) : realFiles.reduce((acc, f) => acc + f.bytes.length, 0);
+  const decoySize = decoyMode === "text" ? textBytes(decoyText) : decoyFiles.reduce((acc, f) => acc + f.bytes.length, 0);
+  const realOverflow = cap != null ? Math.max(0, realSize - cap) : 0;
+  const decoyOverflow = cap != null ? Math.max(0, decoySize - cap) : 0;
+  const withinCapacity = cap == null || (realOverflow === 0 && (!decoy || decoyOverflow === 0));
   const canEmbed =
     !busy &&
-    !!cover &&
+    covers.length > 0 &&
     !!pass &&
+    withinCapacity &&
     (decoy
-      ? text.length > 0 && decoyText.length > 0 && decoyPass.length > 0 && decoyPass !== pass
-      : mode === "text"
-        ? text.length > 0
-        : !!file);
+      ? (realMode === "text" ? realText.length > 0 : realFiles.length > 0) &&
+        (decoyMode === "text" ? decoyText.length > 0 : decoyFiles.length > 0) &&
+        decoyPass.length > 0 &&
+        decoyPass !== pass
+      : realMode === "text"
+        ? realText.length > 0
+        : realFiles.length > 0);
 
   return (
     <div className="panel">
-      <button className="picker" onClick={pickCover}>
-        {cover ? `Cover: ${coverName}` : "Choose cover file…"}
-      </button>
-      {cap !== null && (
-        <p className="cap">
-          {decoy ? "Capacity per message" : "Capacity"}: ~{cap.toLocaleString()} bytes
-        </p>
-      )}
-
       <label className="decoy-toggle">
-        <input type="checkbox" checked={decoy} onChange={(e) => setDecoy(e.target.checked)} />
+        <input type="checkbox" checked={splitMode} onChange={(e) => { 
+          setSplitMode(e.target.checked); 
+          if (e.target.checked) setDecoy(false); 
+          setCovers([]); 
+        }} />
+        Split across multiple covers
+      </label>
+      <label className="decoy-toggle">
+        <input type="checkbox" checked={decoy} onChange={(e) => { 
+          setDecoy(e.target.checked); 
+          if (e.target.checked) setSplitMode(false); 
+          setCovers([]); 
+        }} />
         Add a decoy message
       </label>
+      
+      {splitMode && (
+        <p className="hint">
+          Splits the secret into chunks and embeds them across multiple covers. You must provide all resulting files to extract the secret later.
+        </p>
+      )}
       {decoy && (
         <p className="hint">
           Hides two messages in one photo. The real password reveals the real message; the
@@ -214,45 +303,131 @@ function HideTab({ methodId, media }: HideTabProps) {
         </p>
       )}
 
-      {!decoy && (
-        <div className="seg">
-          <button className={mode === "text" ? "on" : ""} onClick={() => setMode("text")}>
-            Text
-          </button>
-          <button className={mode === "file" ? "on" : ""} onClick={() => setMode("file")}>
-            File
-          </button>
-        </div>
+      <button className="picker" onClick={pickCover}>
+        {covers.length > 0 
+          ? `Covers: ${covers.length} selected (${covers.map(c => c.name).join(", ")})` 
+          : splitMode ? "Choose cover files…" : "Choose cover file…"}
+      </button>
+
+      {cap !== null && (
+        <p className="cap">
+          {splitMode ? "Approximate Split Capacity" : decoy ? "Capacity per message" : "Capacity"}: ~{cap.toLocaleString()} bytes
+        </p>
+      )}
+      {cap !== null && !decoy && realOverflow > 0 && (
+        <p className="warn">Secret is {realOverflow.toLocaleString()} bytes over capacity.</p>
+      )}
+      {cap !== null && decoy && realOverflow > 0 && (
+        <p className="warn">Real secret is {realOverflow.toLocaleString()} bytes over capacity.</p>
+      )}
+      {cap !== null && decoy && decoyOverflow > 0 && (
+        <p className="warn">Decoy secret is {decoyOverflow.toLocaleString()} bytes over capacity.</p>
       )}
 
-      {decoy || mode === "text" ? (
-        <textarea
-          placeholder={decoy ? "Real message…" : "Secret message…"}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={4}
-        />
-      ) : (
-        <button className="picker" onClick={pickSecretFile}>
-          {file ? `File: ${file.name} (${file.bytes.length} B)` : "Choose secret file…"}
-        </button>
-      )}
-
-      <input
-        type="password"
-        placeholder={decoy ? "Real password" : "Passphrase"}
-        value={pass}
-        onChange={(e) => setPass(e.target.value)}
-      />
-
-      {decoy && (
+      {!decoy ? (
         <>
-          <textarea
-            placeholder="Decoy message (the fake one)…"
-            value={decoyText}
-            onChange={(e) => setDecoyText(e.target.value)}
-            rows={3}
+          <div className="seg">
+            <button className={realMode === "text" ? "on" : ""} onClick={() => setRealMode("text")}>
+              Text
+            </button>
+            <button
+              className={realMode === "file" ? "on" : ""}
+              onClick={() => setRealMode("file")}
+              disabled={covers.length === 0}
+            >
+              File
+            </button>
+          </div>
+
+          {realMode === "text" ? (
+            <textarea
+              placeholder="Secret message…"
+              value={realText}
+              onChange={(e) => setRealText(e.target.value)}
+              rows={4}
+            />
+          ) : (
+            <button className="picker" onClick={pickRealFile}>
+              {realFiles.length > 0
+                ? `${realFiles.length} file(s) selected (${realFiles.map(f => f.name).join(", ")})`
+                : "Choose secret file(s)…"}
+            </button>
+          )}
+
+          <input
+            type="password"
+            placeholder="Passphrase"
+            value={pass}
+            onChange={(e) => setPass(e.target.value)}
           />
+        </>
+      ) : (
+        <>
+          <p className="section">Real secret</p>
+          <div className="seg">
+            <button className={realMode === "text" ? "on" : ""} onClick={() => setRealMode("text")}>
+              Text
+            </button>
+            <button
+              className={realMode === "file" ? "on" : ""}
+              onClick={() => setRealMode("file")}
+              disabled={covers.length === 0}
+            >
+              File
+            </button>
+          </div>
+
+          {realMode === "text" ? (
+            <textarea
+              placeholder="Real message…"
+              value={realText}
+              onChange={(e) => setRealText(e.target.value)}
+              rows={4}
+            />
+          ) : (
+            <button className="picker" onClick={pickRealFile}>
+              {realFiles.length > 0
+                ? `${realFiles.length} file(s) selected (${realFiles.map(f => f.name).join(", ")})`
+                : "Choose real secret file(s)…"}
+            </button>
+          )}
+
+          <input
+            type="password"
+            placeholder="Real password"
+            value={pass}
+            onChange={(e) => setPass(e.target.value)}
+          />
+
+          <p className="section">Decoy secret</p>
+          <div className="seg">
+            <button className={decoyMode === "text" ? "on" : ""} onClick={() => setDecoyMode("text")}>
+              Text
+            </button>
+            <button
+              className={decoyMode === "file" ? "on" : ""}
+              onClick={() => setDecoyMode("file")}
+              disabled={covers.length === 0}
+            >
+              File
+            </button>
+          </div>
+
+          {decoyMode === "text" ? (
+            <textarea
+              placeholder="Decoy message (the fake one)…"
+              value={decoyText}
+              onChange={(e) => setDecoyText(e.target.value)}
+              rows={3}
+            />
+          ) : (
+            <button className="picker" onClick={pickDecoyFile}>
+              {decoyFiles.length > 0
+                ? `${decoyFiles.length} file(s) selected (${decoyFiles.map(f => f.name).join(", ")})`
+                : "Choose decoy file(s)…"}
+            </button>
+          )}
+
           <input
             type="password"
             placeholder="Decoy password (must differ from the real one)"
@@ -409,29 +584,39 @@ interface ExtractTabProps {
 }
 
 function ExtractTab({ methodId }: ExtractTabProps) {
-  const [stego, setStego] = useState<number[] | null>(null);
-  const [stegoName, setStegoName] = useState("");
+  const [stegos, setStegos] = useState<{ name: string; bytes: number[] }[]>([]);
+  const [splitMode, setSplitMode] = useState(false);
   const [pass, setPass] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Revealed | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   async function pickStego() {
-    const path = await open({ multiple: false });
-    if (typeof path !== "string") return;
-    setStego(await readFile(path));
-    setStegoName(path.split(/[\\/]/).pop() ?? "stego");
+    const paths = await open({ multiple: splitMode });
+    if (!paths) return;
+    const pathsArr = Array.isArray(paths) ? paths : [paths];
+    const results = await Promise.all(
+      pathsArr.map(async (p) => ({
+        name: p.split(/[\\/]/).pop() ?? "stego",
+        bytes: await readFile(p),
+      }))
+    );
+    setStegos(results);
     setResult(null);
     setErr(null);
   }
 
   async function doExtract() {
-    if (!stego || !pass) return;
+    if (stegos.length === 0 || !pass) return;
     setBusy(true);
     setResult(null);
     setErr(null);
     try {
-      setResult(await extract(methodId, stego, pass));
+      if (splitMode) {
+        setResult(await extractSplit(methodId, stegos.map(s => s.bytes), pass));
+      } else {
+        setResult(await extract(methodId, stegos[0].bytes, pass));
+      }
     } catch (e) {
       setErr(String(e));
     }
@@ -445,8 +630,19 @@ function ExtractTab({ methodId }: ExtractTabProps) {
 
   return (
     <div className="panel">
+      <label className="decoy-toggle">
+        <input type="checkbox" checked={splitMode} onChange={(e) => { 
+          setSplitMode(e.target.checked); 
+          setStegos([]); 
+          setResult(null); 
+        }} />
+        Extract from split covers
+      </label>
+
       <button className="picker" onClick={pickStego}>
-        {stego ? `Stego: ${stegoName}` : "Choose stego file…"}
+        {stegos.length > 0 
+          ? `Stegos: ${stegos.length} selected (${stegos.map(s => s.name).join(", ")})` 
+          : splitMode ? "Choose split stego files…" : "Choose stego file…"}
       </button>
       <input
         type="password"
@@ -454,7 +650,7 @@ function ExtractTab({ methodId }: ExtractTabProps) {
         value={pass}
         onChange={(e) => setPass(e.target.value)}
       />
-      <button className="primary" disabled={busy || !stego || !pass} onClick={doExtract}>
+      <button className="primary" disabled={busy || stegos.length === 0 || !pass} onClick={doExtract}>
         {busy ? "Extracting…" : "Reveal"}
       </button>
 
@@ -471,6 +667,18 @@ function ExtractTab({ methodId }: ExtractTabProps) {
           <button className="primary" onClick={() => saveRevealedFile(result.name, result.bytes)}>
             Save file…
           </button>
+        </div>
+      )}
+      {result?.kind === "files" && (
+        <div className="reveal">
+          <span className="label">Hidden files ({result.files.length})</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {result.files.map((f, i) => (
+              <button key={i} className="primary" onClick={() => saveRevealedFile(f.name, f.bytes)}>
+                Save {f.name} ({f.bytes.length} B)…
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {err && <p className="err">{err}</p>}

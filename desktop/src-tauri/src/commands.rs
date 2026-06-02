@@ -1,12 +1,14 @@
 //! Tauri commands — thin wrappers around `stegno-core` plus local file I/O.
 //! All processing is in-process and offline.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use stegno_core::payload::{Revealed, Secret};
+use stegno_core::ByteChunk;
 use stegno_core::{
     capacity as core_capacity, decoy_capacity as core_decoy_capacity, detect_lsb as core_detect,
-    embed as core_embed, embed_with_decoy as core_embed_with_decoy, extract as core_extract,
-    list_methods as core_list, quality as core_quality,
+    embed as core_embed, embed_split as core_embed_split, embed_with_decoy as core_embed_with_decoy,
+    extract as core_extract, extract_split as core_extract_split, list_methods as core_list,
+    quality as core_quality,
 };
 
 #[tauri::command]
@@ -72,12 +74,52 @@ pub fn embed_text_with_decoy(
     .map_err(|e| e.to_string())
 }
 
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum SecretDto {
+    Text { text: String },
+    File { name: String, bytes: Vec<u8> },
+    Files { files: Vec<stegno_core::payload::FileRecord> },
+}
+
+impl From<SecretDto> for Secret {
+    fn from(value: SecretDto) -> Self {
+        match value {
+            SecretDto::Text { text } => Secret::Text { text },
+            SecretDto::File { name, bytes } => Secret::File { name, bytes },
+            SecretDto::Files { files } => Secret::Files { files },
+        }
+    }
+}
+
+/// Hide a real message and a decoy message in one photo, each under its own
+/// password. Supports either text or file payloads per slot. Always produces a
+/// PNG photo.
+#[tauri::command]
+pub fn embed_with_decoy(
+    cover: Vec<u8>,
+    real: SecretDto,
+    real_passphrase: String,
+    decoy: SecretDto,
+    decoy_passphrase: String,
+) -> Result<Vec<u8>, String> {
+    core_embed_with_decoy(
+        cover,
+        real.into(),
+        real_passphrase,
+        decoy.into(),
+        decoy_passphrase,
+    )
+    .map_err(|e| e.to_string())
+}
+
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum RevealedDto {
     None,
     Text { text: String },
     File { name: String, bytes: Vec<u8> },
+    Files { files: Vec<stegno_core::payload::FileRecord> },
 }
 
 #[tauri::command]
@@ -90,6 +132,46 @@ pub fn extract(
         Revealed::None => Ok(RevealedDto::None),
         Revealed::Text { text } => Ok(RevealedDto::Text { text }),
         Revealed::File { name, bytes } => Ok(RevealedDto::File { name, bytes }),
+        Revealed::Files { files } => Ok(RevealedDto::Files { files }),
+    }
+}
+
+/// Unified hide command — accepts text, a single file, or multiple files.
+#[tauri::command]
+pub fn embed(
+    method_id: String,
+    cover: Vec<u8>,
+    secret: SecretDto,
+    passphrase: String,
+) -> Result<Vec<u8>, String> {
+    core_embed(method_id, cover, secret.into(), passphrase).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn embed_split(
+    method_id: String,
+    covers: Vec<Vec<u8>>,
+    secret: SecretDto,
+    passphrase: String,
+) -> Result<Vec<Vec<u8>>, String> {
+    let core_covers: Vec<ByteChunk> = covers.into_iter().map(|b| ByteChunk { bytes: b }).collect();
+    let result = core_embed_split(method_id, core_covers, secret.into(), passphrase)
+        .map_err(|e| e.to_string())?;
+    Ok(result.into_iter().map(|c| c.bytes).collect())
+}
+
+#[tauri::command]
+pub fn extract_split(
+    method_id: String,
+    stegos: Vec<Vec<u8>>,
+    passphrase: String,
+) -> Result<RevealedDto, String> {
+    let core_stegos: Vec<ByteChunk> = stegos.into_iter().map(|b| ByteChunk { bytes: b }).collect();
+    match core_extract_split(method_id, core_stegos, passphrase).map_err(|e| e.to_string())? {
+        Revealed::None => Ok(RevealedDto::None),
+        Revealed::Text { text } => Ok(RevealedDto::Text { text }),
+        Revealed::File { name, bytes } => Ok(RevealedDto::File { name, bytes }),
+        Revealed::Files { files } => Ok(RevealedDto::Files { files }),
     }
 }
 

@@ -6,7 +6,13 @@ export type MethodInfo = { id: string; displayName: string; media: string };
 export type Revealed =
   | { kind: "none" }
   | { kind: "text"; text: string }
-  | { kind: "file"; name: string; bytes: number[] };
+  | { kind: "file"; name: string; bytes: number[] }
+  | { kind: "files"; files: { name: string; bytes: number[] }[] };
+
+export type SecretInput =
+  | { kind: "text"; text: string }
+  | { kind: "file"; name: string; bytes: number[] }
+  | { kind: "files"; files: { name: string; bytes: number[] }[] };
 
 export async function listMethods(): Promise<MethodInfo[]> {
   const raw = await invoke<[string, string, string][]>("list_methods");
@@ -42,6 +48,20 @@ export function embedFile(
   });
 }
 
+export function embedSecret(
+  methodId: string,
+  cover: number[],
+  secret: SecretInput,
+  passphrase: string
+): Promise<number[]> {
+  return invoke<number[]>("embed", {
+    methodId,
+    cover,
+    secret,
+    passphrase,
+  });
+}
+
 /** Usable bytes per slot when hiding a real + decoy message (≈ half the image each). */
 export function decoyCapacity(cover: number[]): Promise<number> {
   return invoke<number>("decoy_capacity", { cover });
@@ -59,11 +79,27 @@ export function embedTextWithDecoy(
   decoyText: string,
   decoyPassphrase: string
 ): Promise<number[]> {
-  return invoke<number[]>("embed_text_with_decoy", {
+  return embedWithDecoy(
     cover,
-    realText,
+    { kind: "text", text: realText },
     realPassphrase,
-    decoyText,
+    { kind: "text", text: decoyText },
+    decoyPassphrase
+  );
+}
+
+export function embedWithDecoy(
+  cover: number[],
+  real: SecretInput,
+  realPassphrase: string,
+  decoy: SecretInput,
+  decoyPassphrase: string
+): Promise<number[]> {
+  return invoke<number[]>("embed_with_decoy", {
+    cover,
+    real,
+    realPassphrase,
+    decoy,
     decoyPassphrase,
   });
 }
@@ -74,6 +110,28 @@ export function extract(
   passphrase: string
 ): Promise<Revealed> {
   return invoke<Revealed>("extract", { methodId, stego, passphrase });
+}
+
+export function embedSplit(
+  methodId: string,
+  covers: number[][],
+  secret: SecretInput,
+  passphrase: string
+): Promise<number[][]> {
+  return invoke<number[][]>("embed_split", {
+    methodId,
+    covers,
+    secret,
+    passphrase,
+  });
+}
+
+export function extractSplit(
+  methodId: string,
+  stegos: number[][],
+  passphrase: string
+): Promise<Revealed> {
+  return invoke<Revealed>("extract_split", { methodId, stegos, passphrase });
 }
 
 export type Detection = {
