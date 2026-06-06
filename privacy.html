@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Privacy Policy for Stegno — an offline, server-less steganography toolkit. No data leaves your device." />
+  <title>Privacy Policy — Stegno</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #21262d;
+      --accent: #1d6fe8;
+      --accent-dim: #1155b5;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --green: #3fb950;
+      --red: #f85149;
+    }
+
+    :root.light {
+      --bg: #f6f8fa;
+      --surface: #ffffff;
+      --border: #d0d7de;
+      --accent: #0969da;
+      --accent-dim: #0550ae;
+      --text: #1f2328;
+      --muted: #656d76;
+      --green: #1a7f37;
+      --red: #cf222e;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 1rem;
+      line-height: 1.75;
+      min-height: 100vh;
+      transition: background .25s, color .25s;
+    }
+
+    /* ── Toggle button ── */
+    #theme-toggle {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 100;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 99px;
+      padding: .4rem .9rem;
+      font-size: .82rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      transition: background .25s, border-color .25s, color .25s;
+    }
+    #theme-toggle:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 2rem 0;
+      text-align: center;
+      transition: background .25s, border-color .25s;
+    }
+
+    header .logo {
+      font-size: 1.1rem;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 700;
+      margin-bottom: .4rem;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: .4rem;
+    }
+
+    header p.meta {
+      color: var(--muted);
+      font-size: .88rem;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      background: color-mix(in srgb, var(--green) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--green) 35%, transparent);
+      color: var(--green);
+      font-size: .78rem;
+      font-weight: 600;
+      padding: .25rem .75rem;
+      border-radius: 99px;
+      margin-top: .75rem;
+      letter-spacing: .03em;
+    }
+
+    .badge::before {
+      content: '●';
+      font-size: .6rem;
+    }
+
+    main {
+      max-width: 760px;
+      margin: 3rem auto;
+      padding: 0 1.5rem;
+    }
+
+    .intro-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--accent);
+      border-radius: 10px;
+      padding: 1.4rem 1.6rem;
+      margin-bottom: 2.5rem;
+      color: var(--text);
+      font-size: .97rem;
+      transition: background .25s, border-color .25s;
+    }
+
+    .intro-box strong {
+      color: var(--accent);
+    }
+
+    section {
+      margin-bottom: 2.25rem;
+    }
+
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      margin-bottom: .75rem;
+      padding-bottom: .5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    p { margin-bottom: .75rem; color: var(--text); }
+
+    ul {
+      list-style: none;
+      padding: 0;
+      margin-bottom: .75rem;
+    }
+
+    ul li {
+      padding: .3rem 0 .3rem 1.4rem;
+      position: relative;
+      color: var(--text);
+    }
+
+    ul li::before {
+      content: '→';
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .highlight {
+      background: color-mix(in srgb, var(--accent) 8%, transparent);
+      border: 1px solid var(--accent-dim);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      font-size: .93rem;
+      transition: background .25s, border-color .25s;
+    }
+
+    .highlight .label {
+      font-size: .75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--accent);
+      margin-bottom: .4rem;
+    }
+
+    .no-collect {
+      background: color-mix(in srgb, var(--green) 8%, transparent);
+      border: 1px solid color-mix(in srgb, var(--green) 35%, transparent);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      font-size: .93rem;
+      transition: background .25s, border-color .25s;
+    }
+
+    .no-collect .label {
+      font-size: .75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--green);
+      margin-bottom: .4rem;
+    }
+
+    .no-collect ul li::before { color: var(--green); }
+    .no-collect p { color: var(--text); }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+
+    footer {
+      text-align: center;
+      padding: 2.5rem 1rem;
+      color: var(--muted);
+      font-size: .83rem;
+      border-top: 1px solid var(--border);
+      transition: border-color .25s;
+    }
+
+    @media (max-width: 600px) {
+      header h1 { font-size: 1.5rem; }
+      main { margin: 2rem auto; }
+      #theme-toggle { top: .6rem; right: .6rem; }
+    }
+  </style>
+</head>
+<body>
+
+<button id="theme-toggle" aria-label="Toggle light/dark mode">
+  <span id="toggle-icon">☀️</span> <span id="toggle-label">Light Mode</span>
+</button>
+
+<script>
+  (function () {
+    var saved = localStorage.getItem('stegno-theme');
+    if (saved === 'light') {
+      document.documentElement.classList.add('light');
+      document.addEventListener('DOMContentLoaded', function () {
+        document.getElementById('toggle-icon').textContent = '🌙';
+        document.getElementById('toggle-label').textContent = 'Dark Mode';
+      });
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+      document.getElementById('theme-toggle').addEventListener('click', function () {
+        var isLight = document.documentElement.classList.toggle('light');
+        localStorage.setItem('stegno-theme', isLight ? 'light' : 'dark');
+        document.getElementById('toggle-icon').textContent = isLight ? '🌙' : '☀️';
+        document.getElementById('toggle-label').textContent = isLight ? 'Dark Mode' : 'Light Mode';
+      });
+    });
+  })();
+</script>
+
+<header>
+  <div class="logo">Stegno</div>
+  <h1>Privacy Policy</h1>
+  <p class="meta">Effective date: June 6, 2026 &nbsp;·&nbsp; MIT-licensed open source project</p>
+  <div class="badge">100% Offline — Nothing Leaves Your Device</div>
+</header>
+
+<main>
+
+  <div class="intro-box">
+    <strong>The short version:</strong> Stegno is a fully offline, server-less steganography toolkit.
+    It runs entirely on your device — desktop (via Tauri) or Android (via native Kotlin/Compose).
+    It has no server to send data to, no accounts, no analytics, and no internet connection
+    whatsoever. This policy exists to make that explicit and legally clear.
+  </div>
+
+  <!-- 1 -->
+  <section>
+    <h2>1. What Stegno Does</h2>
+    <p>
+      Stegno lets you hide encrypted data inside ordinary files (images, audio, text) and extract
+      it again — all locally on your device. It uses AES-256-GCM encryption with Argon2id key
+      derivation and a suite of steganographic methods (LSB, PVD, DWT, JPEG-DCT, etc.).
+      Everything happens inside the app; nothing is transmitted anywhere.
+    </p>
+  </section>
+
+  <!-- 2 -->
+  <section>
+    <h2>2. Data We Do Not Collect</h2>
+    <div class="no-collect">
+      <div class="label">✓ None of the following are ever collected</div>
+      <ul>
+        <li>Your secret messages, files, or passphrases</li>
+        <li>The cover files (images, audio) you use as carriers</li>
+        <li>Embedded or extracted stego output files</li>
+        <li>Your device identifiers, hardware info, or location</li>
+        <li>Usage analytics, crash telemetry, or event logs</li>
+        <li>Any personally identifiable information whatsoever</li>
+      </ul>
+      <p>Stegno's core engine (<code>stegno-core</code>) is a single audited Rust crate with no
+      network dependency. The desktop and Android apps call that same engine locally via UniFFI
+      bindings.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section>
+    <h2>3. Network Activity</h2>
+    <div class="no-collect">
+      <div class="label">✓ Zero network requests at runtime</div>
+      <p>
+        Stegno makes <strong>no network connections</strong> during normal operation. There is no
+        backend server, no cloud sync, no license check, and no update ping. If you run a network
+        monitor alongside Stegno you will see no outbound traffic originating from the app.
+      </p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section>
+    <h2>4. Passphrase Security</h2>
+    <p>
+      Your passphrase never leaves your device and is never stored to disk. It is used in-memory
+      solely to derive an AES-256-GCM encryption key via Argon2id. Once the session is over,
+      the derived key is dropped from memory.
+    </p>
+    <div class="highlight">
+      <div class="label">Security note</div>
+      Argon2id makes brute-force expensive but cannot rescue a weak passphrase. Choose a strong,
+      unique passphrase. The plausible-deniability decoy slot only provides deniability if you
+      actually embed a decoy — the real slot is then indistinguishable from unused LSB noise
+      without the correct real passphrase.
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section>
+    <h2>5. Files You Process</h2>
+    <p>
+      All cover files, secret content, and output stego files remain entirely under your control
+      on your local filesystem. Stegno reads and writes only what you explicitly point it to.
+      No copies are created anywhere outside the path you specify.
+    </p>
+  </section>
+
+  <!-- 6 -->
+  <section>
+    <h2>6. Third-Party SDKs &amp; Dependencies</h2>
+    <p>
+      Stegno's runtime dependencies are all open-source Rust crates and Android/Tauri platform
+      libraries. None of them are analytics, advertising, or tracking SDKs. You can audit every
+      dependency in <code>Cargo.lock</code> in the public repository.
+    </p>
+  </section>
+
+  <!-- 7 -->
+  <section>
+    <h2>7. Permissions (Android)</h2>
+    <p>
+      The Android app requests only the permissions necessary to read and write files for
+      steganographic processing. It does not request permission to access the internet, contacts,
+      location, camera, or microphone.
+    </p>
+  </section>
+
+  <!-- 8 -->
+  <section>
+    <h2>8. Changes to This Policy</h2>
+    <p>
+      If this policy ever changes (for example, if a future version adds an optional cloud feature),
+      the effective date above will be updated and the change will be noted in the project's
+      changelog and README.
+    </p>
+  </section>
+
+</main>
+
+<footer>
+  Stegno &nbsp;·&nbsp; 2026
+</footer>
+
+</body>
+</html>
