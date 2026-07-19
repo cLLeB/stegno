@@ -18,6 +18,7 @@ pub mod lsb_seeded;
 pub mod lsbmr;
 pub mod png_text;
 pub mod pvd;
+pub mod unicode_tags;
 pub mod wav_lsb;
 pub mod whitespace;
 pub mod zero_width;

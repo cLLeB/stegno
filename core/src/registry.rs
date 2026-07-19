@@ -15,6 +15,7 @@ use crate::methods::lsb_seeded::LsbSeeded;
 use crate::methods::lsbmr::Lsbmr;
 use crate::methods::png_text::PngText;
 use crate::methods::pvd::Pvd;
+use crate::methods::unicode_tags::UnicodeTags;
 use crate::methods::wav_lsb::WavLsb;
 use crate::methods::whitespace::Whitespace;
 use crate::methods::zero_width::ZeroWidth;
@@ -30,6 +31,7 @@ pub fn registry() -> Vec<Box<dyn Method>> {
         Box::new(EdgeAdaptive),
         Box::new(Pvd),
         Box::new(ZeroWidth),
+        Box::new(UnicodeTags),
         Box::new(Whitespace),
         Box::new(AppendEof),
         Box::new(PngText),

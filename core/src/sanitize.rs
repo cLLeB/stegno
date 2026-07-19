@@ -82,7 +82,7 @@ fn sanitize_text(data: &[u8]) -> Option<SanitizeReport> {
             let zw = matches!(
                 c,
                 '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}' | '\u{2060}' | '\u{180E}'
-            );
+            ) || (0xE0000..=0xE007F).contains(&(c as u32)); // Unicode Tags block
             if zw {
                 removed_zw += 1;
             }

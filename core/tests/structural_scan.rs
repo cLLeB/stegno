@@ -63,6 +63,34 @@ fn detects_zero_width_output() {
 }
 
 #[test]
+fn unicode_tags_full_lifecycle() {
+    use stegno_core::fingerprint::fingerprint;
+    use stegno_core::sanitize::sanitize;
+    if !has_method("unicode_tags") {
+        return;
+    }
+    let carrier = "A perfectly innocent looking message. ".repeat(3);
+    let stego = embed(
+        "unicode_tags".into(),
+        carrier.into_bytes(),
+        Secret::Text { text: "smuggled".into() },
+        "pw".into(),
+    )
+    .unwrap();
+
+    // Detected by the structural scanner...
+    let report = scan_structure(stego.clone());
+    assert!(report.findings.iter().any(|f| f.kind == "unicode_tags"));
+    // ...identified by the fingerprinter...
+    let guesses = fingerprint(stego.clone());
+    assert_eq!(guesses[0].label, "unicode_tags");
+    // ...and destroyed by sanitize.
+    let cleaned = sanitize(stego).cleaned;
+    let after = scan_structure(cleaned);
+    assert!(!after.findings.iter().any(|f| f.kind == "unicode_tags"));
+}
+
+#[test]
 fn clean_cover_is_quiet() {
     let report = scan_structure(png_cover(64, 64));
     assert_eq!(report.format, "png");

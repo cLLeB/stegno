@@ -71,6 +71,12 @@ pub fn fingerprint(data: Vec<u8>) -> Vec<MethodGuess> {
                 0.9,
                 "zero-width / invisible characters in the text",
             ),
+            "unicode_tags" => push(
+                &mut guesses,
+                "unicode_tags",
+                0.9,
+                "invisible Unicode tag characters in the text",
+            ),
             "trailing_whitespace" => push(
                 &mut guesses,
                 "whitespace",

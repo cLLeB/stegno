@@ -238,6 +238,19 @@ fn scan_text(data: &[u8], findings: &mut Vec<StructuralFinding>) {
         });
     }
 
+    // Unicode Tags block (U+E0000–U+E007F): invisible "smuggling" characters.
+    let tags = text
+        .chars()
+        .filter(|&c| (0xE0000..=0xE007F).contains(&(c as u32)))
+        .count();
+    if tags > 0 {
+        findings.push(StructuralFinding {
+            kind: "unicode_tags".into(),
+            detail: format!("{tags} invisible Unicode tag characters found in text."),
+            severity: 2,
+        });
+    }
+
     // Trailing-whitespace (SNOW-style) channel: runs of space/tab at line ends.
     let trailing: usize = text
         .lines()
