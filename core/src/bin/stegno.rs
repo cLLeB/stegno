@@ -17,6 +17,7 @@
 use std::process::ExitCode;
 
 use stegno_core::benchmark::detectability;
+use stegno_core::crypto::benchmark_kdf;
 use stegno_core::doctor::run_self_test;
 use stegno_core::fingerprint::fingerprint;
 use stegno_core::passphrase::estimate_passphrase_strength;
@@ -49,6 +50,7 @@ USAGE:
     stegno scan <dir> [--threshold <0-100>] [--json]
     stegno sanitize <file> <out>
     stegno strength <passphrase>
+    stegno kdftime
     stegno split (--text <T> | --file <path>) --threshold <k> --shares <n>
     stegno combine <share> <share> ...            (shares look like `1:ab12…`)
 
@@ -86,6 +88,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "scan" => cmd_scan(&args[1..]),
         "sanitize" => cmd_sanitize(&args[1..]),
         "strength" => cmd_strength(&args[1..]),
+        "kdftime" => cmd_kdftime(),
         "split" => cmd_split(&args[1..]),
         "combine" => cmd_combine(&args[1..]),
         "help" | "-h" | "--help" | "" => {
@@ -583,6 +586,14 @@ fn cmd_sanitize(args: &[String]) -> Result<(), String> {
     } else {
         eprintln!("no hidden-data channels found; copied unchanged -> {out}");
     }
+    Ok(())
+}
+
+fn cmd_kdftime() -> Result<(), String> {
+    let b = benchmark_kdf();
+    println!("Argon2id: {} KiB, {} iterations", b.memory_kib, b.iterations);
+    println!("time    : {:.0} ms/derivation", b.millis);
+    println!("verdict : {}", b.verdict.to_uppercase());
     Ok(())
 }
 

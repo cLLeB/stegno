@@ -36,6 +36,18 @@ export function selfTest(): Promise<SelfTestResult[]> {
   return invoke<SelfTestResult[]>("self_test");
 }
 
+export interface KdfBenchmark {
+  millis: number;
+  memoryKib: number;
+  iterations: number;
+  verdict: string;
+}
+
+/** Measure Argon2id key-derivation cost on this device (weak/ok/slow). */
+export function benchmarkKdf(): Promise<KdfBenchmark> {
+  return invoke<KdfBenchmark>("benchmark_kdf");
+}
+
 export interface MethodRecommendation {
   methodId: string;
   displayName: string;

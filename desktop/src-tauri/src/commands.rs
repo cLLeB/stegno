@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use stegno_core::payload::{Revealed, Secret};
 use stegno_core::ByteChunk;
 use stegno_core::benchmark::detectability as core_detectability;
+use stegno_core::crypto::benchmark_kdf as core_benchmark_kdf;
 use stegno_core::doctor::run_self_test as core_self_test;
 use stegno_core::fingerprint::fingerprint as core_fingerprint;
 use stegno_core::passphrase::estimate_passphrase_strength as core_passphrase_strength;
@@ -390,6 +391,27 @@ pub struct StructuralReportDto {
     pub format: String,
     pub findings: Vec<StructuralFindingDto>,
     pub suspicious: bool,
+}
+
+/// Measured Argon2id key-derivation cost on this device.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KdfBenchmarkDto {
+    pub millis: f64,
+    pub memory_kib: u32,
+    pub iterations: u32,
+    pub verdict: String,
+}
+
+#[tauri::command]
+pub fn benchmark_kdf() -> KdfBenchmarkDto {
+    let b = core_benchmark_kdf();
+    KdfBenchmarkDto {
+        millis: b.millis,
+        memory_kib: b.memory_kib,
+        iterations: b.iterations,
+        verdict: b.verdict,
+    }
 }
 
 /// Per-method result of the engine self-test.

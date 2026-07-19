@@ -7,6 +7,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_methods,
             commands::self_test,
+            commands::benchmark_kdf,
             commands::capacity,
             commands::plan_embedding,
             commands::embed,
