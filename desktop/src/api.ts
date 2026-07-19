@@ -23,6 +23,32 @@ export function capacity(methodId: string, cover: number[]): Promise<number> {
   return invoke<number>("capacity", { methodId, cover });
 }
 
+export interface MethodRecommendation {
+  methodId: string;
+  displayName: string;
+  media: string;
+  usableBytes: number;
+  fits: boolean;
+  fillRatio: number;
+  stealthTier: 0 | 1 | 2;
+  note: string;
+}
+
+/**
+ * Rank the methods that can hide `payloadLen` bytes in `cover`, best-first
+ * (fitting methods before non-fitting; stealthier methods before detectable
+ * ones; lower fill ratio before higher).
+ */
+export function planEmbedding(
+  cover: number[],
+  payloadLen: number
+): Promise<MethodRecommendation[]> {
+  return invoke<MethodRecommendation[]>("plan_embedding", {
+    cover,
+    payloadLen,
+  });
+}
+
 export function embedText(
   methodId: string,
   cover: number[],
@@ -60,6 +86,66 @@ export function embedSecret(
     secret,
     passphrase,
   });
+}
+
+/**
+ * Hide a secret with Reed–Solomon error correction so it survives bounded
+ * carrier damage (light recompression, a resize, a scanned print). `robustness`
+ * ranges 1 (smallest overhead) to 3 (most resilient). Recovered with the plain
+ * `extract` — the recipient only needs the passphrase.
+ */
+export function embedRobust(
+  methodId: string,
+  cover: number[],
+  secret: SecretInput,
+  passphrase: string,
+  robustness: 1 | 2 | 3
+): Promise<number[]> {
+  return invoke<number[]>("embed_robust", {
+    methodId,
+    cover,
+    secret,
+    passphrase,
+    robustness,
+  });
+}
+
+/**
+ * Full hide pipeline: optional Reed–Solomon FEC (`robustness` 0 = off, 1–3) and
+ * an optional compression pre-pass (`compress`). Both are recorded in the frame,
+ * so a plain `extract` reverses them — the recipient only needs the passphrase.
+ */
+export function embedAdvanced(
+  methodId: string,
+  cover: number[],
+  secret: SecretInput,
+  passphrase: string,
+  robustness: 0 | 1 | 2 | 3,
+  compress: boolean
+): Promise<number[]> {
+  return invoke<number[]>("embed_advanced", {
+    methodId,
+    cover,
+    secret,
+    passphrase,
+    robustness,
+    compress,
+  });
+}
+
+export interface PassphraseStrength {
+  score: 0 | 1 | 2 | 3 | 4;
+  entropyBits: number;
+  crackTimeDisplay: string;
+  warning: string;
+  suggestions: string[];
+}
+
+/** Offline passphrase-strength estimate — no dictionary download, no network. */
+export function passphraseStrength(
+  passphrase: string
+): Promise<PassphraseStrength> {
+  return invoke<PassphraseStrength>("passphrase_strength", { passphrase });
 }
 
 /** Usable bytes per slot when hiding a real + decoy message (≈ half the image each). */
@@ -112,6 +198,22 @@ export function extract(
   return invoke<Revealed>("extract", { methodId, stego, passphrase });
 }
 
+export interface AutoRevealed {
+  methodId: string;
+  revealed: Revealed;
+}
+
+/**
+ * Reveal a hidden payload without knowing which method hid it. Returns the
+ * matching method id (empty if nothing found) alongside the revealed data.
+ */
+export function extractAuto(
+  stego: number[],
+  passphrase: string
+): Promise<AutoRevealed> {
+  return invoke<AutoRevealed>("extract_auto", { stego, passphrase });
+}
+
 export function embedSplit(
   methodId: string,
   covers: number[][],
@@ -138,6 +240,10 @@ export type Detection = {
   chiSquareP: number;
   rsRegularityGap: number;
   samplePairRate: number;
+  hogUniformity: number;
+  noiseResidualEnergy: number;
+  mlConfidence: number;
+  isStenographic: boolean;
 };
 
 /** Scan a photo for signs of hidden LSB data. */
@@ -145,11 +251,54 @@ export function detectLsb(image: number[]): Promise<Detection> {
   return invoke<Detection>("detect_lsb", { image });
 }
 
+export interface StructuralFinding {
+  kind: string;
+  detail: string;
+  severity: 0 | 1 | 2;
+}
+
+export interface StructuralReport {
+  format: string;
+  findings: StructuralFinding[];
+  suspicious: boolean;
+}
+
+/**
+ * Scan a file's container structure for signs of hidden data — appended data,
+ * PNG/ZIP polyglots, private metadata chunks, or zero-width text. Complements
+ * `detectLsb` (which looks at pixel statistics) with format-level checks.
+ */
+export function scanStructure(data: number[]): Promise<StructuralReport> {
+  return invoke<StructuralReport>("scan_structure", { data });
+}
+
 export type Quality = { mse: number; psnrDb: number; ssim: number };
 
 /** Compare an original photo with a modified one. */
 export function quality(cover: number[], stego: number[]): Promise<Quality> {
   return invoke<Quality>("quality", { cover, stego });
+}
+
+export interface SecretShare {
+  x: number;
+  y: number[];
+}
+
+/**
+ * Split a secret into `shares` pieces, any `threshold` of which reconstruct it
+ * (Shamir Secret Sharing). Fewer than `threshold` reveal nothing.
+ */
+export function sssSplit(
+  secret: number[],
+  threshold: number,
+  shares: number
+): Promise<SecretShare[]> {
+  return invoke<SecretShare[]>("sss_split", { secret, threshold, shares });
+}
+
+/** Reconstruct a secret from a set of Shamir shares. */
+export function sssCombine(shares: SecretShare[]): Promise<number[]> {
+  return invoke<number[]>("sss_combine", { shares });
 }
 
 export function readFile(path: string): Promise<number[]> {

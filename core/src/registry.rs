@@ -11,6 +11,7 @@ use crate::methods::polyglot::Polyglot;
 use crate::methods::lsb_image::LsbImage;
 use crate::methods::lsb_matching::LsbMatching;
 use crate::methods::lsb_seeded::LsbSeeded;
+use crate::methods::lsbmr::Lsbmr;
 use crate::methods::png_text::PngText;
 use crate::methods::pvd::Pvd;
 use crate::methods::wav_lsb::WavLsb;
@@ -23,6 +24,7 @@ pub fn registry() -> Vec<Box<dyn Method>> {
         Box::new(LsbImage),
         Box::new(LsbSeeded),
         Box::new(LsbMatching),
+        Box::new(Lsbmr),
         Box::new(EdgeAdaptive),
         Box::new(Pvd),
         Box::new(ZeroWidth),

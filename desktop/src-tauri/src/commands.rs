@@ -4,11 +4,18 @@
 use serde::{Deserialize, Serialize};
 use stegno_core::payload::{Revealed, Secret};
 use stegno_core::ByteChunk;
+use stegno_core::passphrase::estimate_passphrase_strength as core_passphrase_strength;
+use stegno_core::planner::plan_embedding as core_plan_embedding;
+use stegno_core::sss::{
+    sss_combine as core_sss_combine, sss_split as core_sss_split, SecretShare,
+};
+use stegno_core::structural::scan_structure as core_scan_structure;
 use stegno_core::{
     capacity as core_capacity, decoy_capacity as core_decoy_capacity, detect_lsb as core_detect,
-    embed as core_embed, embed_split as core_embed_split, embed_with_decoy as core_embed_with_decoy,
-    extract as core_extract, extract_split as core_extract_split, list_methods as core_list,
-    quality as core_quality,
+    embed as core_embed, embed_advanced as core_embed_advanced, embed_robust as core_embed_robust,
+    embed_split as core_embed_split, embed_with_decoy as core_embed_with_decoy,
+    extract as core_extract, extract_auto as core_extract_auto,
+    extract_split as core_extract_split, list_methods as core_list, quality as core_quality,
 };
 
 #[tauri::command]
@@ -136,6 +143,31 @@ pub fn extract(
     }
 }
 
+/// Auto-detected extraction result: which method matched (empty if none).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoRevealedDto {
+    pub method_id: String,
+    pub revealed: RevealedDto,
+}
+
+/// Reveal a hidden payload without knowing which method hid it. Tries every
+/// method and returns the first that decrypts under the passphrase.
+#[tauri::command]
+pub fn extract_auto(stego: Vec<u8>, passphrase: String) -> Result<AutoRevealedDto, String> {
+    let found = core_extract_auto(stego, passphrase).map_err(|e| e.to_string())?;
+    let revealed = match found.revealed {
+        Revealed::None => RevealedDto::None,
+        Revealed::Text { text } => RevealedDto::Text { text },
+        Revealed::File { name, bytes } => RevealedDto::File { name, bytes },
+        Revealed::Files { files } => RevealedDto::Files { files },
+    };
+    Ok(AutoRevealedDto {
+        method_id: found.method_id,
+        revealed,
+    })
+}
+
 /// Unified hide command — accepts text, a single file, or multiple files.
 #[tauri::command]
 pub fn embed(
@@ -145,6 +177,68 @@ pub fn embed(
     passphrase: String,
 ) -> Result<Vec<u8>, String> {
     core_embed(method_id, cover, secret.into(), passphrase).map_err(|e| e.to_string())
+}
+
+/// Hide a secret with a Reed–Solomon error-correction layer so it survives
+/// bounded carrier damage (light recompression, a resize, a scanned print).
+/// `robustness` is 1 (smallest overhead) to 3 (most resilient). Recovered by the
+/// ordinary `extract` command — the recipient needs only the passphrase.
+#[tauri::command]
+pub fn embed_robust(
+    method_id: String,
+    cover: Vec<u8>,
+    secret: SecretDto,
+    passphrase: String,
+    robustness: u8,
+) -> Result<Vec<u8>, String> {
+    core_embed_robust(method_id, cover, secret.into(), passphrase, robustness)
+        .map_err(|e| e.to_string())
+}
+
+/// Full hide pipeline with optional Reed–Solomon FEC (`robustness` 0–3) and an
+/// optional compression pre-pass. Both are recorded in the frame so the ordinary
+/// `extract` reverses them automatically.
+#[tauri::command]
+pub fn embed_advanced(
+    method_id: String,
+    cover: Vec<u8>,
+    secret: SecretDto,
+    passphrase: String,
+    robustness: u8,
+    compress: bool,
+) -> Result<Vec<u8>, String> {
+    core_embed_advanced(
+        method_id,
+        cover,
+        secret.into(),
+        passphrase,
+        robustness,
+        compress,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Offline passphrase-strength estimate (score 0–4, entropy, crack time, tips).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PassphraseStrengthDto {
+    pub score: u8,
+    pub entropy_bits: f64,
+    pub crack_time_display: String,
+    pub warning: String,
+    pub suggestions: Vec<String>,
+}
+
+#[tauri::command]
+pub fn passphrase_strength(passphrase: String) -> PassphraseStrengthDto {
+    let r = core_passphrase_strength(passphrase);
+    PassphraseStrengthDto {
+        score: r.score,
+        entropy_bits: r.entropy_bits,
+        crack_time_display: r.crack_time_display,
+        warning: r.warning,
+        suggestions: r.suggestions,
+    }
 }
 
 #[tauri::command]
@@ -211,6 +305,108 @@ pub fn quality(cover: Vec<u8>, stego: Vec<u8>) -> Result<QualityDto, String> {
         psnr_db: r.psnr_db,
         ssim: r.ssim,
     })
+}
+
+/// One ranked method recommendation for a cover + payload size.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MethodRecommendationDto {
+    pub method_id: String,
+    pub display_name: String,
+    pub media: String,
+    pub usable_bytes: u64,
+    pub fits: bool,
+    pub fill_ratio: f64,
+    pub stealth_tier: u8,
+    pub note: String,
+}
+
+/// Rank the methods that can hide `payload_len` bytes in `cover`, best-first.
+#[tauri::command]
+pub fn plan_embedding(cover: Vec<u8>, payload_len: u64) -> Vec<MethodRecommendationDto> {
+    core_plan_embedding(cover, payload_len)
+        .into_iter()
+        .map(|r| MethodRecommendationDto {
+            method_id: r.method_id,
+            display_name: r.display_name,
+            media: r.media,
+            usable_bytes: r.usable_bytes,
+            fits: r.fits,
+            fill_ratio: r.fill_ratio,
+            stealth_tier: r.stealth_tier,
+            note: r.note,
+        })
+        .collect()
+}
+
+/// One structural signal (mirrors `stegno_core::structural::StructuralFinding`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructuralFindingDto {
+    pub kind: String,
+    pub detail: String,
+    pub severity: u8,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructuralReportDto {
+    pub format: String,
+    pub findings: Vec<StructuralFindingDto>,
+    pub suspicious: bool,
+}
+
+/// Scan a file's container structure for signs of hidden data (appended data,
+/// polyglots, private metadata chunks, zero-width text). No payload is decoded.
+#[tauri::command]
+pub fn scan_structure(data: Vec<u8>) -> StructuralReportDto {
+    let r = core_scan_structure(data);
+    StructuralReportDto {
+        format: r.format,
+        findings: r
+            .findings
+            .into_iter()
+            .map(|f| StructuralFindingDto {
+                kind: f.kind,
+                detail: f.detail,
+                severity: f.severity,
+            })
+            .collect(),
+        suspicious: r.suspicious,
+    }
+}
+
+/// One Shamir share (x-coordinate + per-byte evaluations).
+#[derive(Serialize, Deserialize)]
+pub struct SecretShareDto {
+    pub x: u8,
+    pub y: Vec<u8>,
+}
+
+/// Split a secret into `shares` pieces, any `threshold` of which reconstruct it.
+#[tauri::command]
+pub fn sss_split(
+    secret: Vec<u8>,
+    threshold: u8,
+    shares: u8,
+) -> Result<Vec<SecretShareDto>, String> {
+    core_sss_split(secret, threshold, shares)
+        .map(|v| {
+            v.into_iter()
+                .map(|s| SecretShareDto { x: s.x, y: s.y })
+                .collect()
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// Reconstruct a secret from a set of shares (need at least the threshold count).
+#[tauri::command]
+pub fn sss_combine(shares: Vec<SecretShareDto>) -> Result<Vec<u8>, String> {
+    let core_shares = shares
+        .into_iter()
+        .map(|s| SecretShare { x: s.x, y: s.y })
+        .collect();
+    core_sss_combine(core_shares).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

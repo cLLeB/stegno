@@ -14,6 +14,29 @@ const MAGIC: [u8; 4] = *b"STG0";
 const VERSION: u8 = 1;
 const HDR_LEN: usize = 4 + 1 + 1 + 1 + 4; // magic + version + flags + slot + len
 
+/// `flags` bit 0: the body is Reed–Solomon FEC-encoded (see [`crate::fec`]).
+pub const FLAG_FEC: u8 = 0x01;
+/// `flags` bits 1–2: the FEC robustness level (1–3) when [`FLAG_FEC`] is set.
+pub const FLAG_FEC_LEVEL_SHIFT: u8 = 1;
+pub const FLAG_FEC_LEVEL_MASK: u8 = 0b0000_0110;
+/// `flags` bit 3: the inner plaintext was DEFLATE-compressed before encryption
+/// (see [`crate::compress`]).
+pub const FLAG_COMPRESSED: u8 = 0x08;
+
+/// Pack a FEC robustness level (1–3) into the frame flags byte.
+pub fn flags_with_fec(level: u8) -> u8 {
+    FLAG_FEC | ((level & 0b11) << FLAG_FEC_LEVEL_SHIFT)
+}
+
+/// Read the FEC robustness level back out of a flags byte (0 if FEC absent).
+pub fn fec_level(flags: u8) -> u8 {
+    if flags & FLAG_FEC == 0 {
+        0
+    } else {
+        (flags & FLAG_FEC_LEVEL_MASK) >> FLAG_FEC_LEVEL_SHIFT
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record, Serialize, Deserialize)]
 pub struct FileRecord {
     pub name: String,
@@ -145,10 +168,15 @@ pub fn deserialize_secret(inner: &[u8]) -> Result<Secret, StegnoError> {
 
 /// Wrap a body (the sealed blob) in the outer frame.
 pub fn frame(body: &[u8]) -> Vec<u8> {
+    frame_with_flags(body, 0)
+}
+
+/// Wrap a body in the outer frame with explicit `flags` (e.g. [`FLAG_FEC`]).
+pub fn frame_with_flags(body: &[u8], flags: u8) -> Vec<u8> {
     let mut v = Vec::with_capacity(HDR_LEN + body.len());
     v.extend_from_slice(&MAGIC);
     v.push(VERSION);
-    v.push(0); // flags (reserved)
+    v.push(flags);
     v.push(0); // slot_type: 0 = primary
     v.extend_from_slice(&(body.len() as u32).to_be_bytes());
     v.extend_from_slice(body);
@@ -160,15 +188,22 @@ pub fn frame(body: &[u8]) -> Vec<u8> {
 /// `Ok(None)` if MAGIC is absent (no hidden data). `Err(CorruptPayload)` if the
 /// header is present but the declared length runs past the buffer.
 pub fn unframe(stream: &[u8]) -> Result<Option<Vec<u8>>, StegnoError> {
+    Ok(unframe_with_flags(stream)?.map(|(_flags, body)| body))
+}
+
+/// Like [`unframe`] but also returns the `flags` byte, so callers can tell
+/// whether the body needs a FEC-decode pass before decryption.
+pub fn unframe_with_flags(stream: &[u8]) -> Result<Option<(u8, Vec<u8>)>, StegnoError> {
     if stream.len() < HDR_LEN || stream[..4] != MAGIC {
         return Ok(None);
     }
+    let flags = stream[5];
     let len = u32::from_be_bytes([stream[7], stream[8], stream[9], stream[10]]) as usize;
     let end = HDR_LEN + len;
     if stream.len() < end {
         return Err(StegnoError::CorruptPayload);
     }
-    Ok(Some(stream[HDR_LEN..end].to_vec()))
+    Ok(Some((flags, stream[HDR_LEN..end].to_vec())))
 }
 
 #[cfg(test)]

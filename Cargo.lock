@@ -3451,6 +3451,7 @@ dependencies = [
  "argon2",
  "getrandom 0.2.17",
  "image",
+ "miniz_oxide",
  "proptest",
  "serde",
  "sha2",

@@ -29,7 +29,7 @@ function textBytes(value: string): number {
 /// Output file extension for a method. Most image methods emit PNG, but a few
 /// produce a different container (e.g. jpeg_jsteg emits a real JPEG), so the
 /// method id takes precedence over the carrier medium.
-function outputExtension(methodId: string, media: string): string {
+function outputExtension(methodId: string, media: string, originalName?: string): string {
   switch (methodId) {
     case "jpeg_jsteg":
     case "jpeg_f5":
@@ -45,7 +45,29 @@ function outputExtension(methodId: string, media: string): string {
     case "Text":
       return "txt";
     default:
+      if (originalName && originalName.includes(".")) {
+        return originalName.split(".").pop() || "bin";
+      }
       return "bin";
+  }
+}
+
+function autoSelectMethod(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  switch (ext) {
+    case "jpg":
+    case "jpeg":
+      return "jpeg_f5"; // Best for JPEGs
+    case "png":
+    case "bmp":
+    case "webp":
+      return "lsb_image"; // Robust for lossless images
+    case "wav":
+      return "wav_lsb";
+    case "txt":
+      return "whitespace";
+    default:
+      return "append_eof"; // Universal fallback
   }
 }
 
@@ -75,18 +97,7 @@ export default function App() {
         <p className="sub">Offline steganography · {methods.length} methods</p>
       </header>
 
-      {tab !== "analyze" && (
-        <label className="method">
-          <span>Method</span>
-          <select value={methodId} onChange={(e) => setMethodId(e.target.value)}>
-            {methods.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.displayName} · {m.media}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      {/* Global method selector removed; handled inside tabs now */}
 
       <div className="tabs">
         <button className={tab === "hide" ? "on" : ""} onClick={() => setTab("hide")}>
@@ -101,8 +112,8 @@ export default function App() {
       </div>
 
       {methods.length === 0 && <p className="warn">Engine not available.</p>}
-      {tab === "hide" && <HideTab methodId={methodId} media={method?.media ?? "File"} />}
-      {tab === "extract" && <ExtractTab methodId={methodId} />}
+      {tab === "hide" && <HideTab methodId={methodId} media={method?.media ?? "File"} setMethodId={setMethodId} methods={methods} />}
+      {tab === "extract" && <ExtractTab methodId={methodId} setMethodId={setMethodId} methods={methods} />}
       {tab === "analyze" && <AnalyzeTab />}
 
       <footer>Argon2id + AES-256-GCM · nothing leaves this device.</footer>
@@ -113,9 +124,11 @@ export default function App() {
 interface HideTabProps {
   methodId: string;
   media: string;
+  setMethodId: (id: string) => void;
+  methods: MethodInfo[];
 }
 
-function HideTab({ methodId, media }: HideTabProps) {
+function HideTab({ methodId, media, setMethodId, methods }: HideTabProps) {
   const [covers, setCovers] = useState<{ name: string; bytes: number[] }[]>([]);
   const cover = covers.length > 0 ? covers[0].bytes : null;
   const [cap, setCap] = useState<number | null>(null);
@@ -135,6 +148,9 @@ function HideTab({ methodId, media }: HideTabProps) {
   const [decoyText, setDecoyText] = useState("");
   const [decoyFiles, setDecoyFiles] = useState<{ name: string; bytes: number[] }[]>([]);
   const [decoyPass, setDecoyPass] = useState("");
+  
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const currentMethodInfo = methods.find(m => m.id === methodId);
 
   useEffect(() => {
     if (covers.length === 0) {
@@ -164,6 +180,9 @@ function HideTab({ methodId, media }: HideTabProps) {
     setCovers(results);
     setMsg(null);
     setErr(null);
+    if (results.length > 0) {
+      setMethodId(autoSelectMethod(results[0].name));
+    }
   }
 
   async function pickRealFile() {
@@ -206,7 +225,7 @@ function HideTab({ methodId, media }: HideTabProps) {
         
         for (let i = 0; i < outList.length; i++) {
           const out = outList[i];
-          const ext = outputExtension(methodId, media);
+          const ext = outputExtension(methodId, media, covers[i]?.name);
           const path = await save({
             defaultPath: `stego_part${i + 1}.${ext}`,
             filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
@@ -236,7 +255,7 @@ function HideTab({ methodId, media }: HideTabProps) {
           out = await embedSecret(methodId, cover!, secretInput, pass);
         }
         
-        const ext = decoy ? "png" : outputExtension(methodId, media);
+        const ext = decoy ? "png" : outputExtension(methodId, media, covers[0]?.name);
         const path = await save({
           defaultPath: `stego.${ext}`,
           filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
@@ -308,6 +327,37 @@ function HideTab({ methodId, media }: HideTabProps) {
           ? `Covers: ${covers.length} selected (${covers.map(c => c.name).join(", ")})` 
           : splitMode ? "Choose cover files…" : "Choose cover file…"}
       </button>
+
+      {covers.length > 0 && currentMethodInfo && !showAdvanced && (
+        <p className="ok" style={{ margin: "4px 0 0 0", fontSize: "0.9rem" }}>
+          ✓ Auto-selected best method for {currentMethodInfo.media.toUpperCase()} files ({currentMethodInfo.displayName})
+        </p>
+      )}
+
+      {covers.length > 0 && (
+        <div style={{ marginTop: "8px" }}>
+          <button 
+            className="link-button" 
+            style={{ fontSize: "0.85rem", padding: 0, background: "none", border: "none", color: "#646cff", cursor: "pointer", textDecoration: "underline" }}
+            onClick={() => setShowAdvanced(!showAdvanced)}
+          >
+            {showAdvanced ? "Hide Advanced Settings" : "Advanced Settings / Manual Override"}
+          </button>
+          
+          {showAdvanced && (
+            <label className="method" style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.9rem" }}>
+              <span>Override Steganography Method</span>
+              <select value={methodId} onChange={(e) => setMethodId(e.target.value)} style={{ padding: "8px", borderRadius: "4px" }}>
+                {methods.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.displayName} · {m.media}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
 
       {cap !== null && (
         <p className="cap">
@@ -447,16 +497,48 @@ function HideTab({ methodId, media }: HideTabProps) {
   );
 }
 
-/** Plain-language verdict for the LSB detector. */
+/**
+ * Plain-language verdict using all three metrics:
+ *   samplePairRate  — SPA embedding-rate estimate (0=clean, 1=fully embedded)
+ *   rsRegularityGap — RS gap (R−S)/(R+S): HIGH gap = clean, LOW/negative = suspicious
+ *   chiSquareP      — Chi-square p-value (only fires on heavy sequential LSB replacement)
+ *
+ * RS gap is the most reliable indicator for real camera photos.
+ * SPA rate gives an embedding-rate estimate but over-fires on camera AI processing.
+ * Chi-square only triggers on synthetic/cartoon images with sequential lsb_image embedding.
+ */
 function suspicionVerdict(d: Detection): { text: string; cls: string } {
   const rate = d.samplePairRate;
-  if (rate < 0.05 && d.chiSquareP < 0.5) {
-    return { text: "✓ Looks clean — no obvious hidden data.", cls: "ok" };
+  const gap  = d.rsRegularityGap;  // high (>0.3) = clean; low/negative = suspicious
+  const chi  = d.chiSquareP;
+
+  // Count how many independent tests flag suspicious:
+  const spaFlagged  = rate >= 0.20;          // SPA reports ≥20% embedding rate
+  const rsFlagged   = gap  <  0.15;          // RS gap collapsed — regularity eroded
+  const chiFlagged  = chi  >= 0.85;          // Chi-square p ≥ 85% (rare, only sequential LSB)
+
+  const flagCount = (spaFlagged ? 1 : 0) + (rsFlagged ? 1 : 0) + (chiFlagged ? 1 : 0);
+
+  // Strong consensus: 2+ independent tests agree → very likely steganography.
+  if (flagCount >= 2) {
+    return { text: "⛔ Likely hiding data — multiple independent tests agree.", cls: "err" };
   }
-  if (rate < 0.2 && d.chiSquareP < 0.9) {
-    return { text: "⚠ Possibly hiding data — some suspicious signs.", cls: "warn" };
+
+  // One test flags. Decide if it's credible or likely a false positive.
+  if (spaFlagged && !rsFlagged) {
+    // SPA alone fired but RS is still healthy → typical AI/HDR camera artefact.
+    return { text: "⚠ Inconclusive — SPA detected anomalies, but RS analysis looks clean. Likely camera AI processing.", cls: "warn" };
   }
-  return { text: "⛔ Likely hiding data — strong signs of LSB embedding.", cls: "err" };
+  if (rsFlagged && !spaFlagged) {
+    // RS alone collapsed but SPA is low → unusual, worth noting.
+    return { text: "⚠ Possibly hiding data — RS regularity has eroded. Could be lightweight embedding.", cls: "warn" };
+  }
+  if (chiFlagged) {
+    // Chi-square alone → sequential LSB replacement on a near-synthetic image.
+    return { text: "⚠ Possibly hiding data — chi-square detects sequential LSB replacement.", cls: "warn" };
+  }
+
+  return { text: "✓ Looks clean — no signs of hidden data detected.", cls: "ok" };
 }
 
 /** Plain-language verdict for a quality comparison. PSNR is ∞ (serialized as
@@ -548,8 +630,13 @@ function AnalyzeTab() {
         <div className="reveal">
           <p className={sv.cls}>{sv.text}</p>
           <p className="hint">
-            Embedding-rate estimate {(detection!.samplePairRate * 100).toFixed(0)}% · chi-square{" "}
-            {(detection!.chiSquareP * 100).toFixed(0)}%
+            SPA rate {(detection!.samplePairRate * 100).toFixed(0)}%
+            {" · "}
+            RS gap {(detection!.rsRegularityGap * 100).toFixed(0)}%
+            {" · "}
+            Chi-square {(detection!.chiSquareP * 100).toFixed(0)}%
+            {" · "}
+            ML confidence {(detection!.mlConfidence * 100).toFixed(0)}%
           </p>
         </div>
       )}
@@ -581,15 +668,19 @@ function AnalyzeTab() {
 
 interface ExtractTabProps {
   methodId: string;
+  setMethodId: (id: string) => void;
+  methods: MethodInfo[];
 }
 
-function ExtractTab({ methodId }: ExtractTabProps) {
+function ExtractTab({ methodId, setMethodId, methods }: ExtractTabProps) {
   const [stegos, setStegos] = useState<{ name: string; bytes: number[] }[]>([]);
   const [splitMode, setSplitMode] = useState(false);
   const [pass, setPass] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Revealed | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const currentMethodInfo = methods.find(m => m.id === methodId);
 
   async function pickStego() {
     const paths = await open({ multiple: splitMode });
@@ -604,6 +695,9 @@ function ExtractTab({ methodId }: ExtractTabProps) {
     setStegos(results);
     setResult(null);
     setErr(null);
+    if (results.length > 0) {
+      setMethodId(autoSelectMethod(results[0].name));
+    }
   }
 
   async function doExtract() {
@@ -644,6 +738,37 @@ function ExtractTab({ methodId }: ExtractTabProps) {
           ? `Stegos: ${stegos.length} selected (${stegos.map(s => s.name).join(", ")})` 
           : splitMode ? "Choose split stego files…" : "Choose stego file…"}
       </button>
+
+      {stegos.length > 0 && currentMethodInfo && !showAdvanced && (
+        <p className="ok" style={{ margin: "4px 0 0 0", fontSize: "0.9rem" }}>
+          ✓ Auto-selected method for {currentMethodInfo.media.toUpperCase()} files ({currentMethodInfo.displayName})
+        </p>
+      )}
+
+      {stegos.length > 0 && (
+        <div style={{ marginTop: "8px", marginBottom: "8px" }}>
+          <button 
+            className="link-button" 
+            style={{ fontSize: "0.85rem", padding: 0, background: "none", border: "none", color: "#646cff", cursor: "pointer", textDecoration: "underline" }}
+            onClick={() => setShowAdvanced(!showAdvanced)}
+          >
+            {showAdvanced ? "Hide Advanced Settings" : "Advanced Settings / Manual Override"}
+          </button>
+          
+          {showAdvanced && (
+            <label className="method" style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.9rem" }}>
+              <span>Override Steganography Method</span>
+              <select value={methodId} onChange={(e) => setMethodId(e.target.value)} style={{ padding: "8px", borderRadius: "4px" }}>
+                {methods.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.displayName} · {m.media}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
       <input
         type="password"
         placeholder="Passphrase"

@@ -63,13 +63,29 @@ class MainActivity : ComponentActivity() {
 /// Suggested output filename for a method. The method id takes precedence over
 /// the carrier medium, since a few image methods emit a non-PNG container
 /// (jpeg_jsteg produces a real JPEG).
-private fun outputName(methodId: String, media: String): String = when (methodId) {
-    "jpeg_jsteg", "jpeg_f5", "jpeg_outguess", "jpeg_mc" -> "stego.jpg"
-    else -> when (media) {
-        "Image" -> "stego.png"
-        "Audio" -> "stego.wav"
-        "Text" -> "stego.txt"
-        else -> "stego.bin"
+private fun outputName(methodId: String, media: String, originalName: String? = null): String {
+    return when (methodId) {
+        "jpeg_jsteg", "jpeg_f5", "jpeg_outguess", "jpeg_mc" -> "stego.jpg"
+        else -> when (media) {
+            "Image" -> "stego.png"
+            "Audio" -> "stego.wav"
+            "Text" -> "stego.txt"
+            else -> {
+                val ext = originalName?.substringAfterLast('.', "")
+                if (!ext.isNullOrEmpty()) "stego.$ext" else "stego.bin"
+            }
+        }
+    }
+}
+
+private fun autoSelectMethod(filename: String): String {
+    val ext = filename.substringAfterLast('.', "").lowercase()
+    return when (ext) {
+        "jpg", "jpeg" -> "jpeg_f5"
+        "png", "bmp", "webp" -> "lsb_image"
+        "wav" -> "wav_lsb"
+        "txt" -> "whitespace"
+        else -> "append_eof"
     }
 }
 
@@ -101,11 +117,6 @@ fun StegnoApp(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) {
         )
         Spacer(Modifier.height(12.dp))
 
-        if (tab != 2) {
-            MethodSelector(methods, methodId, onSelect = { methodId = it })
-            Spacer(Modifier.height(12.dp))
-        }
-
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Hide") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Extract") })
@@ -113,8 +124,8 @@ fun StegnoApp(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -> Unit) {
         }
         Spacer(Modifier.height(16.dp))
         when (tab) {
-            0 -> HideTab(methodId, media, readUri, writeUri)
-            1 -> ExtractTab(methodId, readUri, writeUri)
+            0 -> HideTab(methodId, media, readUri, writeUri, { methodId = it }, methods)
+            1 -> ExtractTab(methodId, readUri, writeUri, { methodId = it }, methods)
             else -> AnalyzeTab(readUri)
         }
         Spacer(Modifier.height(20.dp))
@@ -163,7 +174,9 @@ fun HideTab(
     methodId: String,
     media: String,
     readUri: (Uri) -> ByteArray,
-    writeUri: (Uri, ByteArray) -> Unit
+    writeUri: (Uri, ByteArray) -> Unit,
+    setMethodId: (String) -> Unit,
+    methods: List<MethodInfo>
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -184,6 +197,9 @@ fun HideTab(
     var decoyText by remember { mutableStateOf("") }
     var decoyFiles by remember { mutableStateOf<List<Pair<String, ByteArray>>>(emptyList()) }
     var decoyPass by remember { mutableStateOf("") }
+
+    var showAdvanced by remember { mutableStateOf(false) }
+    val currentMethodInfo = methods.firstOrNull { it.id == methodId }
 
     LaunchedEffect(covers, methodId, decoy, splitMode) {
         if (covers.isEmpty()) {
@@ -208,11 +224,13 @@ fun HideTab(
     val pickCoverSingle = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         covers = listOf((uri.lastPathSegment ?: "cover") to readUri(uri))
+        setMethodId(autoSelectMethod(uri.lastPathSegment ?: ""))
         status = null
     }
     val pickCoverMultiple = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         covers = uris.map { uri -> (uri.lastPathSegment ?: "cover") to readUri(uri) }
+        setMethodId(autoSelectMethod(uris.first().lastPathSegment ?: ""))
         status = null
     }
 
@@ -237,8 +255,8 @@ fun HideTab(
             val docFile = DocumentFile.fromTreeUri(context, uri)
             if (docFile != null) {
                 var successCount = 0
-                val ext = outputName(methodId, media).substringAfterLast('.', "bin")
                 for ((i, data) in pendingStegos.withIndex()) {
+                    val ext = outputName(methodId, media, covers.getOrNull(i)?.first).substringAfterLast('.', "bin")
                     val f = docFile.createFile("application/octet-stream", "stego_part${i + 1}.$ext")
                     if (f != null) {
                         context.contentResolver.openOutputStream(f.uri)?.use { it.write(data) }
@@ -270,6 +288,27 @@ fun HideTab(
             if (splitMode) pickCoverMultiple.launch(arrayOf("*/*")) else pickCoverSingle.launch(arrayOf("*/*")) 
         }, Modifier.fillMaxWidth()) {
             Text(if (covers.isNotEmpty()) "Covers: ${covers.size} selected" else if (splitMode) "Choose cover files…" else "Choose cover file…")
+        }
+
+        if (covers.isNotEmpty() && currentMethodInfo != null && !showAdvanced) {
+            Text(
+                "✓ Auto-selected best method for ${currentMethodInfo.media.uppercase()} files (${currentMethodInfo.displayName})",
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        if (covers.isNotEmpty()) {
+            TextButton(
+                onClick = { showAdvanced = !showAdvanced },
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                Text(if (showAdvanced) "Hide Advanced Settings" else "Advanced Settings / Manual Override")
+            }
+
+            if (showAdvanced) {
+                MethodSelector(methods, methodId, onSelect = setMethodId)
+            }
         }
 
         cap?.let {
@@ -450,7 +489,7 @@ fun HideTab(
                         if (splitMode) {
                             saveStegoTree.launch(null)
                         } else {
-                            saveStegoSingle.launch(if (decoy) "stego.png" else outputName(methodId, media))
+                            saveStegoSingle.launch(if (decoy) "stego.png" else outputName(methodId, media, covers.firstOrNull()?.first))
                         }
                     }.onFailure { status = it.message ?: "Embedding failed" }
                     busy = false
@@ -468,7 +507,9 @@ fun HideTab(
 fun ExtractTab(
     methodId: String,
     readUri: (Uri) -> ByteArray,
-    writeUri: (Uri, ByteArray) -> Unit
+    writeUri: (Uri, ByteArray) -> Unit,
+    setMethodId: (String) -> Unit,
+    methods: List<MethodInfo>
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -480,15 +521,20 @@ fun ExtractTab(
     var error by remember { mutableStateOf<String?>(null) }
     var pendingFiles by remember { mutableStateOf<List<Pair<String, ByteArray>>>(emptyList()) }
     var status by remember { mutableStateOf<String?>(null) }
+    
+    var showAdvanced by remember { mutableStateOf(false) }
+    val currentMethodInfo = methods.firstOrNull { it.id == methodId }
 
     val pickStegoSingle = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         stegos = listOf((uri.lastPathSegment ?: "stego") to readUri(uri))
+        setMethodId(autoSelectMethod(uri.lastPathSegment ?: ""))
         result = null; error = null; status = null
     }
     val pickStegoMultiple = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         stegos = uris.map { uri -> (uri.lastPathSegment ?: "stego") to readUri(uri) }
+        setMethodId(autoSelectMethod(uris.first().lastPathSegment ?: ""))
         result = null; error = null; status = null
     }
 
@@ -527,6 +573,27 @@ fun ExtractTab(
             if (splitMode) pickStegoMultiple.launch(arrayOf("*/*")) else pickStegoSingle.launch(arrayOf("*/*")) 
         }, Modifier.fillMaxWidth()) {
             Text(if (stegos.isNotEmpty()) "Stegos: ${stegos.size} selected" else if (splitMode) "Choose split stego files…" else "Choose stego file…")
+        }
+
+        if (stegos.isNotEmpty() && currentMethodInfo != null && !showAdvanced) {
+            Text(
+                "✓ Auto-selected method for ${currentMethodInfo.media.uppercase()} files (${currentMethodInfo.displayName})",
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        if (stegos.isNotEmpty()) {
+            TextButton(
+                onClick = { showAdvanced = !showAdvanced },
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                Text(if (showAdvanced) "Hide Advanced Settings" else "Advanced Settings / Manual Override")
+            }
+
+            if (showAdvanced) {
+                MethodSelector(methods, methodId, onSelect = setMethodId)
+            }
         }
         OutlinedTextField(
             value = pass,
@@ -587,13 +654,45 @@ fun ExtractTab(
     }
 }
 
-/// Plain-language verdict (text + level 0=ok,1=warn,2=bad) for the LSB detector.
+/**
+ * Plain-language verdict (text + severity 0=clean, 1=warn, 2=bad) using all three metrics:
+ *   samplePairRate  — SPA embedding-rate estimate (0=clean → 1=fully embedded)
+ *   rsRegularityGap — RS gap (R−S)/(R+S): HIGH = clean, LOW/negative = suspicious
+ *   chiSquareP      — chi-square p-value (only fires on heavy sequential lsb_image replacement)
+ *
+ * RS gap is the most reliable indicator on real camera photos.
+ * SPA over-fires on AI/HDR camera processing.
+ * Chi-square is structurally blind to real photos and only triggers on synthetic images.
+ */
 private fun suspicionText(d: DetectionReport): Pair<String, Int> {
     val rate = d.samplePairRate
+    val gap  = d.rsRegularityGap  // high (>0.3) = clean; low/negative = suspicious
+    val chi  = d.chiSquareP
+
+    val spaFlagged = rate >= 0.20   // SPA reports ≥20% embedding rate
+    val rsFlagged  = gap  <  0.15   // RS gap collapsed — regularity eroded
+    val chiFlagged = chi  >= 0.85   // chi-square p ≥ 85% (rare, only sequential LSB)
+
+    val flagCount = (if (spaFlagged) 1 else 0) + (if (rsFlagged) 1 else 0) + (if (chiFlagged) 1 else 0)
+
     return when {
-        rate < 0.05 && d.chiSquareP < 0.5 -> "✓ Looks clean — no obvious hidden data." to 0
-        rate < 0.2 && d.chiSquareP < 0.9 -> "⚠ Possibly hiding data — some suspicious signs." to 1
-        else -> "⛔ Likely hiding data — strong signs of LSB embedding." to 2
+        // 2+ independent tests agree → very likely steganography
+        flagCount >= 2 ->
+            "⛔ Likely hiding data — multiple independent tests agree." to 2
+
+        // SPA alone fired but RS is healthy → typical AI/HDR camera artefact
+        spaFlagged && !rsFlagged ->
+            "⚠ Inconclusive — SPA detected anomalies, but RS analysis looks clean. Likely camera AI processing." to 1
+
+        // RS alone collapsed but SPA is low → lightweight or partial embedding
+        rsFlagged && !spaFlagged ->
+            "⚠ Possibly hiding data — RS regularity has eroded. Could be lightweight embedding." to 1
+
+        // Chi-square alone → sequential LSB replacement on a near-synthetic image
+        chiFlagged ->
+            "⚠ Possibly hiding data — chi-square detects sequential LSB replacement." to 1
+
+        else -> "✓ Looks clean — no signs of hidden data detected." to 0
     }
 }
 
@@ -669,8 +768,9 @@ fun AnalyzeTab(readUri: (Uri) -> ByteArray) {
                 Column(Modifier.padding(12.dp)) {
                     Text(txt, color = verdictColor(level))
                     Text(
-                        "Embedding-rate estimate ${(d.samplePairRate * 100).toInt()}% · " +
-                            "chi-square ${(d.chiSquareP * 100).toInt()}%",
+                        "SPA rate ${(d.samplePairRate * 100).toInt()}% · " +
+                            "RS gap ${(d.rsRegularityGap * 100).toInt()}% · " +
+                            "Chi-square ${(d.chiSquareP * 100).toInt()}%",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
