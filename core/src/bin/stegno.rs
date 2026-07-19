@@ -21,6 +21,7 @@ use stegno_core::fingerprint::fingerprint;
 use stegno_core::passphrase::estimate_passphrase_strength;
 use stegno_core::payload::{Revealed, Secret};
 use stegno_core::planner::plan_embedding;
+use stegno_core::sanitize::sanitize;
 use stegno_core::sss::{sss_combine, sss_split, SecretShare};
 use stegno_core::structural::scan_structure;
 use stegno_core::{
@@ -41,6 +42,7 @@ USAGE:
     stegno reveal <stego> --pass <P> [--method <M>] [--out <path>]
     stegno analyze <file>
     stegno scan <dir> [--threshold <0-100>] [--json]
+    stegno sanitize <file> <out>
     stegno strength <passphrase>
     stegno split (--text <T> | --file <path>) --threshold <k> --shares <n>
     stegno combine <share> <share> ...            (shares look like `1:ab12…`)
@@ -74,6 +76,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "reveal" => cmd_reveal(&args[1..]),
         "analyze" => cmd_analyze(&args[1..]),
         "scan" => cmd_scan(&args[1..]),
+        "sanitize" => cmd_sanitize(&args[1..]),
         "strength" => cmd_strength(&args[1..]),
         "split" => cmd_split(&args[1..]),
         "combine" => cmd_combine(&args[1..]),
@@ -510,6 +513,25 @@ fn cmd_scan(args: &[String]) -> Result<(), String> {
 
 fn json_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn cmd_sanitize(args: &[String]) -> Result<(), String> {
+    let p = positionals(args);
+    let (file, out) = match p.as_slice() {
+        [f, o] => (*f, *o),
+        _ => return Err("usage: stegno sanitize <file> <out>".into()),
+    };
+    let r = sanitize(read(file)?);
+    write(out, &r.cleaned)?;
+    if r.changed {
+        eprintln!("sanitized ({}) -> {out}:", r.format);
+        for a in &r.actions {
+            eprintln!("  - {a}");
+        }
+    } else {
+        eprintln!("no hidden-data channels found; copied unchanged -> {out}");
+    }
+    Ok(())
 }
 
 fn cmd_strength(args: &[String]) -> Result<(), String> {

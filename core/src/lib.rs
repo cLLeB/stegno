@@ -18,6 +18,7 @@ pub mod planner;
 pub mod payload;
 pub mod prng;
 pub mod registry;
+pub mod sanitize;
 pub mod seed;
 pub mod sss;
 pub mod structural;

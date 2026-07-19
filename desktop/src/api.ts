@@ -276,6 +276,22 @@ export function detectLsb(image: number[]): Promise<Detection> {
   return invoke<Detection>("detect_lsb", { image });
 }
 
+export interface SanitizeReport {
+  cleaned: number[];
+  format: string;
+  actions: string[];
+  changed: boolean;
+}
+
+/**
+ * Counter-steganography: return a cleaned copy of a file with any hidden payload
+ * destroyed (LSB planes zeroed + re-encode, appended data / polyglots / private
+ * chunks dropped, zero-width & trailing whitespace stripped from text).
+ */
+export function sanitize(data: number[]): Promise<SanitizeReport> {
+  return invoke<SanitizeReport>("sanitize", { data });
+}
+
 export interface StructuralFinding {
   kind: string;
   detail: string;

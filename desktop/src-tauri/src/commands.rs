@@ -8,6 +8,7 @@ use stegno_core::benchmark::detectability as core_detectability;
 use stegno_core::fingerprint::fingerprint as core_fingerprint;
 use stegno_core::passphrase::estimate_passphrase_strength as core_passphrase_strength;
 use stegno_core::planner::plan_embedding as core_plan_embedding;
+use stegno_core::sanitize::sanitize as core_sanitize;
 use stegno_core::sss::{
     sss_combine as core_sss_combine, sss_split as core_sss_split, SecretShare,
 };
@@ -436,6 +437,28 @@ pub fn fingerprint(data: Vec<u8>) -> Vec<MethodGuessDto> {
             reason: g.reason,
         })
         .collect()
+}
+
+/// Counter-steganography: strip any hidden payload from a file (LSB planes,
+/// appended data, polyglots, private chunks, zero-width text).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SanitizeReportDto {
+    pub cleaned: Vec<u8>,
+    pub format: String,
+    pub actions: Vec<String>,
+    pub changed: bool,
+}
+
+#[tauri::command]
+pub fn sanitize(data: Vec<u8>) -> SanitizeReportDto {
+    let r = core_sanitize(data);
+    SanitizeReportDto {
+        cleaned: r.cleaned,
+        format: r.format,
+        actions: r.actions,
+        changed: r.changed,
+    }
 }
 
 /// Scan a file's container structure for signs of hidden data (appended data,
