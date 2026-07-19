@@ -16,13 +16,15 @@
 
 use std::process::ExitCode;
 
+use stegno_core::fingerprint::fingerprint;
 use stegno_core::passphrase::estimate_passphrase_strength;
 use stegno_core::payload::{Revealed, Secret};
 use stegno_core::planner::plan_embedding;
 use stegno_core::sss::{sss_combine, sss_split, SecretShare};
 use stegno_core::structural::scan_structure;
 use stegno_core::{
-    capacity, detect_lsb, embed_advanced, extract, extract_auto, list_methods,
+    capacity, detect_lsb, embed_advanced, embed_multi, extract, extract_auto, list_methods,
+    Recipient,
 };
 
 const USAGE: &str = "\
@@ -33,8 +35,10 @@ USAGE:
     stegno capacity <method> <cover>
     stegno plan <cover> <payload-bytes>
     stegno hide <method> <cover> <out> --pass <P> (--text <T> | --file <path>) [--robust <1-3>] [--compress]
+    stegno multi <cover> <out> --to <pass>:<message> [--to <pass>:<message> ...]
     stegno reveal <stego> --pass <P> [--method <M>] [--out <path>]
     stegno analyze <file>
+    stegno scan <dir> [--threshold <0-100>] [--json]
     stegno strength <passphrase>
     stegno split (--text <T> | --file <path>) --threshold <k> --shares <n>
     stegno combine <share> <share> ...            (shares look like `1:ab12…`)
@@ -63,8 +67,10 @@ fn run(args: &[String]) -> Result<(), String> {
         "capacity" => cmd_capacity(&args[1..]),
         "plan" => cmd_plan(&args[1..]),
         "hide" => cmd_hide(&args[1..]),
+        "multi" => cmd_multi(&args[1..]),
         "reveal" => cmd_reveal(&args[1..]),
         "analyze" => cmd_analyze(&args[1..]),
+        "scan" => cmd_scan(&args[1..]),
         "strength" => cmd_strength(&args[1..]),
         "split" => cmd_split(&args[1..]),
         "combine" => cmd_combine(&args[1..]),
@@ -88,6 +94,16 @@ fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 
 fn has_flag(args: &[String], name: &str) -> bool {
     args.iter().any(|a| a == name)
+}
+
+/// Every value of a flag that may repeat (e.g. `--to a --to b`).
+fn flag_all<'a>(args: &'a [String], name: &str) -> Vec<&'a str> {
+    args.iter()
+        .enumerate()
+        .filter(|(_, a)| a.as_str() == name)
+        .filter_map(|(i, _)| args.get(i + 1))
+        .map(String::as_str)
+        .collect()
 }
 
 /// Boolean flags that take no value (so positional parsing skips only the flag).
@@ -221,6 +237,33 @@ fn cmd_hide(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn cmd_multi(args: &[String]) -> Result<(), String> {
+    let p = positionals(args);
+    let (cover, out) = match p.as_slice() {
+        [c, o] => (*c, *o),
+        _ => return Err("usage: stegno multi <cover> <out> --to <pass>:<message> ...".into()),
+    };
+    let tos = flag_all(args, "--to");
+    if tos.len() < 2 {
+        return Err("provide at least two --to <pass>:<message> recipients".into());
+    }
+    let mut recipients = Vec::with_capacity(tos.len());
+    for spec in &tos {
+        let (pass, msg) = spec
+            .split_once(':')
+            .ok_or("each --to must look like <pass>:<message>")?;
+        recipients.push(Recipient {
+            secret: Secret::Text { text: msg.to_string() },
+            passphrase: pass.to_string(),
+        });
+    }
+    let n = recipients.len();
+    let stego = embed_multi(read(cover)?, recipients).map_err(|e| e.to_string())?;
+    write(out, &stego)?;
+    println!("hid {n} messages for {n} recipients -> {out} ({} bytes)", stego.len());
+    Ok(())
+}
+
 fn cmd_reveal(args: &[String]) -> Result<(), String> {
     let p = positionals(args);
     let stego = match p.as_slice() {
@@ -285,7 +328,7 @@ fn cmd_analyze(args: &[String]) -> Result<(), String> {
 
     // Pixel statistics (image formats only).
     if s.format == "png" || s.format == "jpeg" || s.format == "gif" {
-        match detect_lsb(data) {
+        match detect_lsb(data.clone()) {
             Ok(d) => {
                 println!("pixel LSB statistics:");
                 println!("  chi-square p       : {:.3}", d.chi_square_p);
@@ -295,6 +338,12 @@ fn cmd_analyze(args: &[String]) -> Result<(), String> {
             }
             Err(e) => eprintln!("  (pixel analysis skipped: {e})"),
         }
+    }
+
+    // Method fingerprint — which technique most likely produced this file.
+    println!("likely method(s):");
+    for guess in fingerprint(data) {
+        println!("  {:>4.0}%  {}  ({})", guess.confidence * 100.0, guess.label, guess.reason);
     }
     Ok(())
 }
@@ -365,6 +414,82 @@ fn cmd_combine(args: &[String]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Recursively collect file paths under `dir`.
+fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.is_file() {
+                out.push(path);
+            }
+        }
+    }
+}
+
+fn cmd_scan(args: &[String]) -> Result<(), String> {
+    let p = positionals(args);
+    let dir = match p.as_slice() {
+        [d] => *d,
+        _ => return Err("usage: stegno scan <dir> [--threshold <0-100>] [--json]".into()),
+    };
+    let threshold: f64 = flag(args, "--threshold")
+        .map(|t| t.parse::<f64>().unwrap_or(50.0))
+        .unwrap_or(50.0)
+        / 100.0;
+    let json = has_flag(args, "--json");
+
+    let mut files = Vec::new();
+    walk(std::path::Path::new(dir), &mut files);
+
+    // (path, confidence, label) for every file whose top guess clears threshold.
+    let mut hits: Vec<(String, f64, String)> = Vec::new();
+    let mut scanned = 0usize;
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else { continue };
+        scanned += 1;
+        let guesses = fingerprint(bytes);
+        if let Some(top) = guesses.first() {
+            if top.label != "none" && top.confidence >= threshold {
+                hits.push((path.display().to_string(), top.confidence, top.label.clone()));
+            }
+        }
+    }
+    hits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    if json {
+        // Minimal hand-rolled JSON (no serde dependency in the binary).
+        print!("[");
+        for (i, (path, conf, label)) in hits.iter().enumerate() {
+            if i > 0 {
+                print!(",");
+            }
+            print!(
+                "{{\"file\":\"{}\",\"confidence\":{:.3},\"method\":\"{}\"}}",
+                json_escape(path),
+                conf,
+                json_escape(label)
+            );
+        }
+        println!("]");
+    } else {
+        eprintln!(
+            "scanned {scanned} files, {} flagged at >= {:.0}% confidence:",
+            hits.len(),
+            threshold * 100.0
+        );
+        for (path, conf, label) in &hits {
+            println!("  {:>4.0}%  {}  [{}]", conf * 100.0, path, label);
+        }
+    }
+    Ok(())
+}
+
+fn json_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn cmd_strength(args: &[String]) -> Result<(), String> {

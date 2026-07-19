@@ -198,6 +198,31 @@ export function extract(
   return invoke<Revealed>("extract", { methodId, stego, passphrase });
 }
 
+export interface RecipientInput {
+  secret: SecretInput;
+  passphrase: string;
+}
+
+/**
+ * Hide several independent messages in one photo — each recipient reveals only
+ * their own with the ordinary `extract`, the others invisible without the key.
+ * 2–8 recipients.
+ */
+export function embedMulti(
+  cover: number[],
+  recipients: RecipientInput[]
+): Promise<number[]> {
+  return invoke<number[]>("embed_multi", { cover, recipients });
+}
+
+/** Usable bytes per recipient when splitting a cover `count` ways. */
+export function multiSlotCapacity(
+  cover: number[],
+  count: number
+): Promise<number> {
+  return invoke<number>("multi_slot_capacity", { cover, count });
+}
+
 export interface AutoRevealed {
   methodId: string;
   revealed: Revealed;
@@ -270,6 +295,17 @@ export interface StructuralReport {
  */
 export function scanStructure(data: number[]): Promise<StructuralReport> {
   return invoke<StructuralReport>("scan_structure", { data });
+}
+
+export interface MethodGuess {
+  label: string;
+  confidence: number;
+  reason: string;
+}
+
+/** Rank which steganography method most likely produced a file, best-first. */
+export function fingerprint(data: number[]): Promise<MethodGuess[]> {
+  return invoke<MethodGuess[]>("fingerprint", { data });
 }
 
 export type Quality = { mse: number; psnrDb: number; ssim: number };

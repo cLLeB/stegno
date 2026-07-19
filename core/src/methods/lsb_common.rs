@@ -146,6 +146,51 @@ pub fn decoy_region_order(
         .collect()
 }
 
+/// Byte-range `[start, end)` of the master permutation belonging to region
+/// `index` of `count` equal partitions. Multiplying before dividing keeps the
+/// partitions gap-free and exhaustive even when `n` isn't a multiple of `count`.
+pub fn region_bounds(n: usize, index: u32, count: u32) -> (usize, usize) {
+    let count = count.max(1) as usize;
+    let index = index as usize;
+    let start = index * n / count;
+    let end = (index + 1) * n / count;
+    (start, end.min(n))
+}
+
+/// Channel-slot visiting order for region `index` of `count` disjoint partitions.
+///
+/// Generalizes [`decoy_region_order`] (which is the `count == 2` case) to N-way
+/// splits: the fixed [`DECOY_MASTER_SEED`] permutation is cut into `count` equal
+/// contiguous regions — guaranteeing disjoint positions across recipients — and
+/// within a region the visiting order is the passphrase-keyed permutation, so
+/// each recipient's payload is scattered and reconstructable only with their key.
+pub fn region_order(
+    width: u32,
+    height: u32,
+    index: u32,
+    count: u32,
+    key_seed: &[u8; 32],
+) -> Vec<u32> {
+    let n = total_slots(width, height);
+    if n == 0 || count == 0 || index >= count {
+        return Vec::new();
+    }
+    let master = seed::permutation(n, &DECOY_MASTER_SEED);
+    let (start, end) = region_bounds(n, index, count);
+    let region = &master[start..end];
+    seed::permutation(region.len(), key_seed)
+        .into_iter()
+        .map(|i| region[i as usize])
+        .collect()
+}
+
+/// Usable payload bytes in one region when the image is split `count` ways.
+pub fn region_capacity_bytes(width: u32, height: u32, count: u32) -> u64 {
+    let n = total_slots(width, height);
+    let per_region = n / count.max(1) as usize;
+    ((per_region / 8) as u64).saturating_sub(payload::overhead() as u64)
+}
+
 /// Overwrite the LSB of `value` with `bit` (classic LSB replacement).
 #[inline]
 pub fn replace_lsb(value: u8, bit: u8) -> u8 {

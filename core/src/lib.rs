@@ -8,6 +8,7 @@ pub mod analysis;
 pub mod compress;
 pub mod crypto;
 pub mod fec;
+pub mod fingerprint;
 pub mod image_io;
 pub mod method;
 pub mod methods;
@@ -214,6 +215,61 @@ pub fn embed_with_decoy(
     image_io::encode_png(&img)
 }
 
+/// One recipient of a multi-recipient embed: their secret and their passphrase.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Recipient {
+    pub secret: Secret,
+    pub passphrase: String,
+}
+
+/// Largest number of recipients [`embed_multi`] will pack into one cover.
+pub const MAX_RECIPIENTS: usize = 8;
+
+/// Hide **several independent messages in one photo**, each sealed under its own
+/// passphrase and written into a disjoint, key-scattered region.
+///
+/// Every recipient runs an ordinary [`extract`] with *their* passphrase and sees
+/// *only* their message; the other regions are indistinguishable from unused LSB
+/// noise without the matching key. This is the plausible-deniability decoy slot
+/// generalized to N parties (2–[`MAX_RECIPIENTS`]) — e.g. one shared image that
+/// carries a different note for each of five people.
+///
+/// Each region holds ≈ `1/N` of the image (see [`multi_slot_capacity`]); every
+/// secret must fit its region or `CoverTooSmall` is returned.
+#[uniffi::export]
+pub fn embed_multi(cover: Vec<u8>, recipients: Vec<Recipient>) -> Result<Vec<u8>, StegnoError> {
+    let count = recipients.len();
+    if count < 2 || count > MAX_RECIPIENTS {
+        return Err(StegnoError::Internal(format!(
+            "recipients must be 2..={MAX_RECIPIENTS}"
+        )));
+    }
+    let mut img = image_io::decode_rgba(&cover)?;
+    let (w, h) = (img.width, img.height);
+
+    for (i, r) in recipients.iter().enumerate() {
+        let framed = seal_and_frame(&r.secret, &r.passphrase)?;
+        let key = derive_seed(&r.passphrase, Slot::Primary);
+        let order = methods::lsb_common::region_order(w, h, i as u32, count as u32, &key);
+        methods::lsb_common::embed_into(
+            &mut img,
+            &framed,
+            &order,
+            methods::lsb_common::replace_lsb,
+        )?;
+    }
+    image_io::encode_png(&img)
+}
+
+/// Usable payload bytes **per recipient** when splitting a cover `count` ways.
+#[uniffi::export]
+pub fn multi_slot_capacity(cover: Vec<u8>, count: u32) -> Result<u64, StegnoError> {
+    let img = image_io::decode_rgba(&cover)?;
+    Ok(methods::lsb_common::region_capacity_bytes(
+        img.width, img.height, count,
+    ))
+}
+
 /// Usable payload bytes **per slot** when embedding with a decoy (≈ half image).
 #[uniffi::export]
 pub fn decoy_capacity(cover: Vec<u8>) -> Result<u64, StegnoError> {
@@ -409,6 +465,11 @@ pub fn extract(
         return Ok(rev);
     }
 
+    // 3) Multi-recipient fallback: try each region across every split size.
+    if let Some(rev) = try_multi_slots(&stego, &passphrase)? {
+        return Ok(rev);
+    }
+
     if frame_seen_wrong_pass {
         return Err(StegnoError::AuthFailed);
     }
@@ -512,6 +573,36 @@ pub fn extract_auto(stego: Vec<u8>, passphrase: String) -> Result<AutoRevealed, 
         method_id: String::new(),
         revealed: Revealed::None,
     })
+}
+
+/// Try every region of every plausible split size (2..=MAX_RECIPIENTS); return
+/// the first that decrypts under `passphrase`. The AES-GCM tag guarantees only
+/// the intended recipient's region matches, so this reveals nothing about the
+/// number of recipients or the other messages.
+fn try_multi_slots(stego: &[u8], passphrase: &str) -> Result<Option<Revealed>, StegnoError> {
+    let img = match image_io::decode_rgba(stego) {
+        Ok(img) => img,
+        Err(_) => return Ok(None),
+    };
+    let key = derive_seed(passphrase, Slot::Primary);
+    for count in 2..=(MAX_RECIPIENTS as u32) {
+        for index in 0..count {
+            let order =
+                methods::lsb_common::region_order(img.width, img.height, index, count, &key);
+            let framed = match methods::lsb_common::read_frame_with(&img, &order) {
+                Ok(Some(f)) => f,
+                _ => continue,
+            };
+            let sealed = match payload::unframe(&framed) {
+                Ok(Some(s)) => s,
+                _ => continue,
+            };
+            if let Ok(inner) = crypto::open(&sealed, passphrase) {
+                return Ok(Some(revealed_from_inner(&inner)?));
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Split a secret into multiple parts and embed them into multiple cover files.

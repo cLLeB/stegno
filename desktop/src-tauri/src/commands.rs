@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use stegno_core::payload::{Revealed, Secret};
 use stegno_core::ByteChunk;
+use stegno_core::fingerprint::fingerprint as core_fingerprint;
 use stegno_core::passphrase::estimate_passphrase_strength as core_passphrase_strength;
 use stegno_core::planner::plan_embedding as core_plan_embedding;
 use stegno_core::sss::{
@@ -14,8 +15,9 @@ use stegno_core::{
     capacity as core_capacity, decoy_capacity as core_decoy_capacity, detect_lsb as core_detect,
     embed as core_embed, embed_advanced as core_embed_advanced, embed_robust as core_embed_robust,
     embed_split as core_embed_split, embed_with_decoy as core_embed_with_decoy,
-    extract as core_extract, extract_auto as core_extract_auto,
-    extract_split as core_extract_split, list_methods as core_list, quality as core_quality,
+    embed_multi as core_embed_multi, extract as core_extract, extract_auto as core_extract_auto,
+    extract_split as core_extract_split, list_methods as core_list, multi_slot_capacity as core_multi_capacity,
+    quality as core_quality, Recipient,
 };
 
 #[tauri::command]
@@ -118,6 +120,34 @@ pub fn embed_with_decoy(
         decoy_passphrase,
     )
     .map_err(|e| e.to_string())
+}
+
+/// One recipient in a multi-recipient embed.
+#[derive(Deserialize)]
+pub struct RecipientDto {
+    pub secret: SecretDto,
+    pub passphrase: String,
+}
+
+/// Hide several independent messages in one photo, each under its own passphrase
+/// in a disjoint keyed region. Each recipient reveals only their own message with
+/// the ordinary `extract`. 2–8 recipients.
+#[tauri::command]
+pub fn embed_multi(cover: Vec<u8>, recipients: Vec<RecipientDto>) -> Result<Vec<u8>, String> {
+    let core_recipients: Vec<Recipient> = recipients
+        .into_iter()
+        .map(|r| Recipient {
+            secret: r.secret.into(),
+            passphrase: r.passphrase,
+        })
+        .collect();
+    core_embed_multi(cover, core_recipients).map_err(|e| e.to_string())
+}
+
+/// Usable bytes per recipient when splitting a cover `count` ways.
+#[tauri::command]
+pub fn multi_slot_capacity(cover: Vec<u8>, count: u32) -> Result<u64, String> {
+    core_multi_capacity(cover, count).map_err(|e| e.to_string())
 }
 
 #[derive(Serialize)]
@@ -354,6 +384,28 @@ pub struct StructuralReportDto {
     pub format: String,
     pub findings: Vec<StructuralFindingDto>,
     pub suspicious: bool,
+}
+
+/// One ranked method-fingerprint guess.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MethodGuessDto {
+    pub label: String,
+    pub confidence: f64,
+    pub reason: String,
+}
+
+/// Rank which steganography method most likely produced a file, best-first.
+#[tauri::command]
+pub fn fingerprint(data: Vec<u8>) -> Vec<MethodGuessDto> {
+    core_fingerprint(data)
+        .into_iter()
+        .map(|g| MethodGuessDto {
+            label: g.label,
+            confidence: g.confidence,
+            reason: g.reason,
+        })
+        .collect()
 }
 
 /// Scan a file's container structure for signs of hidden data (appended data,

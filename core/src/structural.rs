@@ -34,16 +34,17 @@ pub struct StructuralReport {
 }
 
 const PNG_SIG: &[u8] = &[0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
-const ZIP_LOCAL: &[u8] = &[b'P', b'K', 0x03, 0x04];
 const ZIP_EOCD: &[u8] = &[b'P', b'K', 0x05, 0x06];
+const ZIP_CDH: &[u8] = &[b'P', b'K', 0x01, 0x02]; // central-directory file header
 
-fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+/// Last offset at which `needle` occurs in `haystack`.
+fn rfind_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
     haystack
         .windows(needle.len())
-        .position(|w| w == needle)
+        .rposition(|w| w == needle)
 }
 
 fn detect_format(data: &[u8]) -> &'static str {
@@ -181,17 +182,33 @@ fn scan_gif(data: &[u8], findings: &mut Vec<StructuralFinding>) {
     }
 }
 
+/// Detect a genuine ZIP-in-image polyglot by *validating* the archive's
+/// End-Of-Central-Directory record rather than merely spotting a `PK` byte
+/// pair — the EOCD's central-directory offset must point at a real central
+/// directory header, which random compressed bytes essentially never satisfy.
 fn scan_zip_polyglot(data: &[u8], format: &str, findings: &mut Vec<StructuralFinding>) {
-    // A ZIP central-directory end record inside a non-ZIP-typed file is a
-    // polyglot: the file opens as its image type *and* as an archive.
     if format == "unknown" || format == "text" {
         return;
     }
-    if find_subsequence(data, ZIP_EOCD).is_some() && find_subsequence(data, ZIP_LOCAL).is_some() {
+    let Some(eocd) = rfind_subsequence(data, ZIP_EOCD) else {
+        return;
+    };
+    // The fixed EOCD record is 22 bytes: sig(4) .. cd_offset(4 @ +16) .. comment_len(2).
+    if eocd + 22 > data.len() {
+        return;
+    }
+    let cd_offset = u32::from_le_bytes([
+        data[eocd + 16],
+        data[eocd + 17],
+        data[eocd + 18],
+        data[eocd + 19],
+    ]) as usize;
+    // The central directory it points to must actually start with a CDH signature.
+    if cd_offset + 4 <= data.len() && data[cd_offset..cd_offset + 4] == *ZIP_CDH {
         findings.push(StructuralFinding {
             kind: "polyglot_zip".into(),
             detail: format!(
-                "File is a valid {} but also contains a ZIP archive (PK signatures present).",
+                "File is a valid {} but also contains a structurally valid ZIP archive.",
                 format.to_uppercase()
             ),
             severity: 2,
@@ -315,13 +332,32 @@ mod tests {
     #[test]
     fn png_zip_polyglot_is_flagged() {
         let mut png = minimal_png();
-        // Append a fake but signature-complete ZIP.
-        png.extend_from_slice(ZIP_LOCAL);
-        png.extend_from_slice(&[0u8; 26]);
+        // Append a structurally valid (minimal) ZIP: a central-directory header
+        // followed by an EOCD whose cd_offset points at that header.
+        let cd_offset = png.len() as u32;
+        png.extend_from_slice(ZIP_CDH); // central directory header signature
+        png.extend_from_slice(&[0u8; 42]); // rest of a (zeroed) CDH
+        // EOCD: sig(4) disk(2) disk_cd(2) n_this(2) n_total(2) cd_size(4) cd_offset(4) comment_len(2)
         png.extend_from_slice(ZIP_EOCD);
-        png.extend_from_slice(&[0u8; 18]);
+        png.extend_from_slice(&[0u8; 12]); // through cd_size (offsets +4..+16)
+        png.extend_from_slice(&cd_offset.to_le_bytes()); // cd_offset @ +16
+        png.extend_from_slice(&[0u8; 2]); // comment_len
         let r = scan_structure(png);
         assert!(r.findings.iter().any(|f| f.kind == "polyglot_zip"));
+    }
+
+    #[test]
+    fn stray_pk_bytes_do_not_false_positive() {
+        // A PNG whose data merely contains PK signatures (no valid EOCD/CDH
+        // structure) must NOT be reported as a polyglot.
+        let mut png = minimal_png();
+        png.extend_from_slice(&[b'P', b'K', 0x03, 0x04]); // local header sig only
+        png.extend_from_slice(&[b'P', b'K', 0x05, 0x06]); // EOCD sig but no valid record
+        let r = scan_structure(png);
+        assert!(
+            !r.findings.iter().any(|f| f.kind == "polyglot_zip"),
+            "stray PK bytes falsely flagged as polyglot"
+        );
     }
 
     #[test]
