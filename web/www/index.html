@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#6366f1" />
+  <title>Stegno — hide anything, anywhere</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%236366f1'/%3E%3Cpath d='M50 22a14 14 0 0 0-14 14v8h-4a4 4 0 0 0-4 4v26a4 4 0 0 0 4 4h36a4 4 0 0 0 4-4V48a4 4 0 0 0-4-4h-4v-8a14 14 0 0 0-14-14zm-8 22v-8a8 8 0 0 1 16 0v8z' fill='white'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="hero">
+    <div class="hero-inner">
+      <div class="badge">🔒</div>
+      <div>
+        <h1>Stegno</h1>
+        <p>Hide encrypted messages inside ordinary photos, text &amp; files.</p>
+      </div>
+      <div class="hero-actions">
+        <button class="theme-toggle" id="themeToggle" aria-label="Switch light or dark theme" title="Switch theme">🌙</button>
+        <span class="offline">On-device</span>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <nav class="tabs" id="tabs">
+      <button data-tab="hide" class="active">🖼️ Hide</button>
+      <button data-tab="reveal">🔑 Reveal</button>
+      <button data-tab="share">👥 Share</button>
+      <button data-tab="analyze">🔍 Inspect</button>
+      <button data-tab="clean">🧼 Clean</button>
+    </nav>
+
+    <!-- HIDE -->
+    <section class="panel active" id="panel-hide">
+      <div class="card">
+        <h2>Hide a secret</h2>
+        <p class="hint">Pick a cover, write your message, choose a password. Everything stays on your device.</p>
+
+        <label>Cover image</label>
+        <div class="drop" id="hideDrop"><span class="big">📷</span>Tap to choose a photo (PNG, JPG…)</div>
+        <input type="file" id="hideCover" accept="image/*" hidden />
+
+        <label>Secret message</label>
+        <textarea id="hideText" placeholder="Type the message you want to hide…"></textarea>
+
+        <label>Password</label>
+        <input type="password" id="hidePass" placeholder="A strong passphrase" autocomplete="new-password" />
+        <div class="meter"><span id="strengthBar" style="width:0"></span></div>
+        <div class="small" id="strengthText">Strength appears as you type.</div>
+
+        <label>Method</label>
+        <select id="hideMethod"></select>
+        <div class="small" id="capacityText"></div>
+
+        <div class="row">
+          <div>
+            <label>Toughness</label>
+            <select id="hideRobust">
+              <option value="0">Standard</option>
+              <option value="1">Rugged — survives light edits</option>
+              <option value="2">Extra rugged</option>
+              <option value="3">Maximum — survives print/scan</option>
+            </select>
+          </div>
+          <div>
+            <label>Squeeze</label>
+            <div class="check"><input type="checkbox" id="hideCompress" /><label for="hideCompress">Compress first <span class="small">fit more in</span></label></div>
+          </div>
+        </div>
+
+        <button class="primary" id="hideBtn" disabled>Hide &amp; download</button>
+        <div class="out" id="hideOut"></div>
+      </div>
+    </section>
+
+    <!-- REVEAL -->
+    <section class="panel" id="panel-reveal">
+      <div class="card">
+        <h2>Reveal a secret</h2>
+        <p class="hint">Choose a stego file and enter the password. We'll figure out the method automatically.</p>
+        <label>Stego file</label>
+        <div class="drop" id="revealDrop"><span class="big">🗂️</span>Tap to choose the file</div>
+        <input type="file" id="revealFile" hidden />
+        <label>Password</label>
+        <input type="password" id="revealPass" placeholder="The password used to hide it" autocomplete="off" />
+        <button class="primary" id="revealBtn" disabled>Reveal</button>
+        <div class="out" id="revealOut"></div>
+      </div>
+    </section>
+
+    <!-- SHARE (multi-recipient) -->
+    <section class="panel" id="panel-share">
+      <div class="card">
+        <h2>One photo, many people</h2>
+        <p class="hint">Hide a different message for each person in a single photo. Each opens only their own with their own password.</p>
+        <label>Cover image</label>
+        <div class="drop" id="shareDrop"><span class="big">📷</span>Choose a photo</div>
+        <input type="file" id="shareCover" accept="image/*" hidden />
+        <div id="recipients"></div>
+        <button class="ghost" id="addRecip" style="margin-top:12px">+ Add person</button>
+        <button class="primary" id="shareBtn" disabled>Hide all &amp; download</button>
+        <div class="out" id="shareOut"></div>
+      </div>
+    </section>
+
+    <!-- INSPECT -->
+    <section class="panel" id="panel-analyze">
+      <div class="card">
+        <h2>Inspect a file</h2>
+        <p class="hint">Check any file for signs of hidden data — and guess how it was hidden.</p>
+        <label>File to inspect</label>
+        <div class="drop" id="analyzeDrop"><span class="big">🔍</span>Choose a file</div>
+        <input type="file" id="analyzeFile" hidden />
+        <button class="primary" id="analyzeBtn" disabled>Inspect</button>
+        <div class="out" id="analyzeOut"></div>
+      </div>
+      <div class="card" id="planeCard" style="display:none">
+        <h2>See the hidden layer</h2>
+        <p class="hint">Render a bit-plane of the image — hidden data shows up as noise.</p>
+        <div class="row">
+          <div><label>Channel</label><select id="planeChannel"><option value="0">Red</option><option value="1">Green</option><option value="2">Blue</option></select></div>
+          <div><label>Plane</label><select id="planePlane"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option></select></div>
+        </div>
+        <button class="primary" id="planeBtn">Render</button>
+        <div class="out"><img id="planeImg" class="render" alt="" hidden /></div>
+      </div>
+    </section>
+
+    <!-- CLEAN -->
+    <section class="panel" id="panel-clean">
+      <div class="card">
+        <h2>Remove hidden data</h2>
+        <p class="hint">Scrub a file so any hidden payload is destroyed — the picture still looks the same.</p>
+        <label>File to clean</label>
+        <div class="drop" id="cleanDrop"><span class="big">🧼</span>Choose a file</div>
+        <input type="file" id="cleanFile" hidden />
+        <button class="primary" id="cleanBtn" disabled>Sanitize &amp; download</button>
+        <div class="out" id="cleanOut"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>Runs entirely on your device — no uploads, no servers. <span id="engineInfo"></span></footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
