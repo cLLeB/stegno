@@ -17,6 +17,7 @@
 use std::process::ExitCode;
 
 use stegno_core::benchmark::detectability;
+use stegno_core::doctor::run_self_test;
 use stegno_core::fingerprint::fingerprint;
 use stegno_core::passphrase::estimate_passphrase_strength;
 use stegno_core::payload::{Revealed, Secret};
@@ -35,6 +36,7 @@ stegno — offline steganography toolkit
 
 USAGE:
     stegno methods
+    stegno doctor
     stegno capacity <method> <cover>
     stegno plan <cover> <payload-bytes>
     stegno risk <method> <cover> <payload-bytes>
@@ -71,6 +73,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let cmd = args.first().map(String::as_str).unwrap_or("");
     match cmd {
         "methods" => cmd_methods(),
+        "doctor" => cmd_doctor(),
         "capacity" => cmd_capacity(&args[1..]),
         "plan" => cmd_plan(&args[1..]),
         "risk" => cmd_risk(&args[1..]),
@@ -149,6 +152,24 @@ fn cmd_methods() -> Result<(), String> {
     println!("{:<16} {:<8} {}", "ID", "MEDIA", "NAME");
     for m in list_methods() {
         println!("{:<16} {:<8} {}", m.id, m.media, m.display_name);
+    }
+    Ok(())
+}
+
+fn cmd_doctor() -> Result<(), String> {
+    let results = run_self_test();
+    let mut failed = 0;
+    println!("{:<16} {:<8} {:<8} {:<12} {}", "METHOD", "MEDIA", "STATUS", "CAPACITY", "DETAIL");
+    for r in &results {
+        let status = if r.ok { "PASS" } else { failed += 1; "FAIL" };
+        println!(
+            "{:<16} {:<8} {:<8} {:<12} {}",
+            r.method_id, r.media, status, r.usable_bytes, r.detail
+        );
+    }
+    println!("\n{}/{} methods healthy", results.len() - failed, results.len());
+    if failed > 0 {
+        return Err(format!("{failed} method(s) failed self-test"));
     }
     Ok(())
 }

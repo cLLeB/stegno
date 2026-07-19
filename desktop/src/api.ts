@@ -23,6 +23,19 @@ export function capacity(methodId: string, cover: number[]): Promise<number> {
   return invoke<number>("capacity", { methodId, cover });
 }
 
+export interface SelfTestResult {
+  methodId: string;
+  media: string;
+  ok: boolean;
+  usableBytes: number;
+  detail: string;
+}
+
+/** Round-trip a known secret through every method; report per-method health. */
+export function selfTest(): Promise<SelfTestResult[]> {
+  return invoke<SelfTestResult[]>("self_test");
+}
+
 export interface MethodRecommendation {
   methodId: string;
   displayName: string;

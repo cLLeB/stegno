@@ -6,6 +6,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::list_methods,
+            commands::self_test,
             commands::capacity,
             commands::plan_embedding,
             commands::embed,

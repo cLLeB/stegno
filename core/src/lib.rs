@@ -8,6 +8,7 @@ pub mod analysis;
 pub mod benchmark;
 pub mod compress;
 pub mod crypto;
+pub mod doctor;
 pub mod fec;
 pub mod fingerprint;
 pub mod image_io;

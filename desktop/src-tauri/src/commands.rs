@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use stegno_core::payload::{Revealed, Secret};
 use stegno_core::ByteChunk;
 use stegno_core::benchmark::detectability as core_detectability;
+use stegno_core::doctor::run_self_test as core_self_test;
 use stegno_core::fingerprint::fingerprint as core_fingerprint;
 use stegno_core::passphrase::estimate_passphrase_strength as core_passphrase_strength;
 use stegno_core::planner::plan_embedding as core_plan_embedding;
@@ -389,6 +390,32 @@ pub struct StructuralReportDto {
     pub format: String,
     pub findings: Vec<StructuralFindingDto>,
     pub suspicious: bool,
+}
+
+/// Per-method result of the engine self-test.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfTestResultDto {
+    pub method_id: String,
+    pub media: String,
+    pub ok: bool,
+    pub usable_bytes: u64,
+    pub detail: String,
+}
+
+/// Round-trip a known secret through every method; report per-method health.
+#[tauri::command]
+pub fn self_test() -> Vec<SelfTestResultDto> {
+    core_self_test()
+        .into_iter()
+        .map(|r| SelfTestResultDto {
+            method_id: r.method_id,
+            media: r.media,
+            ok: r.ok,
+            usable_bytes: r.usable_bytes,
+            detail: r.detail,
+        })
+        .collect()
 }
 
 /// How detectable a planned embed would be (dry-run with random data).
