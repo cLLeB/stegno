@@ -26,6 +26,7 @@ pub fn run() {
             commands::detect_lsb,
             commands::scan_structure,
             commands::fingerprint,
+            commands::detectability,
             commands::sss_split,
             commands::sss_combine,
             commands::quality,

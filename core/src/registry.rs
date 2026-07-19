@@ -8,6 +8,7 @@ use crate::methods::edge_adaptive::EdgeAdaptive;
 use crate::methods::jpeg::{JpegF5, JpegJsteg, JpegMc, JpegOutguess};
 use crate::methods::mimic_words::MimicWords;
 use crate::methods::polyglot::Polyglot;
+use crate::methods::lsb_high::LsbHigh;
 use crate::methods::lsb_image::LsbImage;
 use crate::methods::lsb_matching::LsbMatching;
 use crate::methods::lsb_seeded::LsbSeeded;
@@ -25,6 +26,7 @@ pub fn registry() -> Vec<Box<dyn Method>> {
         Box::new(LsbSeeded),
         Box::new(LsbMatching),
         Box::new(Lsbmr),
+        Box::new(LsbHigh),
         Box::new(EdgeAdaptive),
         Box::new(Pvd),
         Box::new(ZeroWidth),

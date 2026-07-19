@@ -16,6 +16,7 @@
 
 use std::process::ExitCode;
 
+use stegno_core::benchmark::detectability;
 use stegno_core::fingerprint::fingerprint;
 use stegno_core::passphrase::estimate_passphrase_strength;
 use stegno_core::payload::{Revealed, Secret};
@@ -34,6 +35,7 @@ USAGE:
     stegno methods
     stegno capacity <method> <cover>
     stegno plan <cover> <payload-bytes>
+    stegno risk <method> <cover> <payload-bytes>
     stegno hide <method> <cover> <out> --pass <P> (--text <T> | --file <path>) [--robust <1-3>] [--compress]
     stegno multi <cover> <out> --to <pass>:<message> [--to <pass>:<message> ...]
     stegno reveal <stego> --pass <P> [--method <M>] [--out <path>]
@@ -66,6 +68,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "methods" => cmd_methods(),
         "capacity" => cmd_capacity(&args[1..]),
         "plan" => cmd_plan(&args[1..]),
+        "risk" => cmd_risk(&args[1..]),
         "hide" => cmd_hide(&args[1..]),
         "multi" => cmd_multi(&args[1..]),
         "reveal" => cmd_reveal(&args[1..]),
@@ -179,6 +182,23 @@ fn cmd_plan(args: &[String]) -> Result<(), String> {
             r.note
         );
     }
+    Ok(())
+}
+
+fn cmd_risk(args: &[String]) -> Result<(), String> {
+    let p = positionals(args);
+    let (method, cover, payload) = match p.as_slice() {
+        [m, c, n] => (*m, *c, *n),
+        _ => return Err("usage: stegno risk <method> <cover> <payload-bytes>".into()),
+    };
+    let payload_len: u64 = payload.parse().map_err(|_| "payload-bytes must be a number")?;
+    let r = detectability(method.to_string(), read(cover)?, payload_len).map_err(|e| e.to_string())?;
+    println!("method           : {}", r.method_id);
+    println!("clean confidence : {:.3}", r.clean_confidence);
+    println!("stego confidence : {:.3}", r.stego_confidence);
+    println!("delta            : {:+.3}", r.delta);
+    println!("PSNR             : {:.1} dB", r.psnr_db);
+    println!("detectability    : {}", r.verdict.to_uppercase());
     Ok(())
 }
 

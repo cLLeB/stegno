@@ -11,6 +11,7 @@ pub mod jpeg;
 pub mod mimic_words;
 pub mod polyglot;
 pub mod lsb_common;
+pub mod lsb_high;
 pub mod lsb_image;
 pub mod lsb_matching;
 pub mod lsb_seeded;

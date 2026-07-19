@@ -308,6 +308,27 @@ export function fingerprint(data: number[]): Promise<MethodGuess[]> {
   return invoke<MethodGuess[]>("fingerprint", { data });
 }
 
+export interface Detectability {
+  methodId: string;
+  cleanConfidence: number;
+  stegoConfidence: number;
+  delta: number;
+  psnrDb: number;
+  verdict: string;
+}
+
+/**
+ * Estimate how detectable embedding `payloadLen` bytes with `methodId` would be
+ * on `cover` — a dry-run with random data measuring detector rise + PSNR cost.
+ */
+export function detectability(
+  methodId: string,
+  cover: number[],
+  payloadLen: number
+): Promise<Detectability> {
+  return invoke<Detectability>("detectability", { methodId, cover, payloadLen });
+}
+
 export type Quality = { mse: number; psnrDb: number; ssim: number };
 
 /** Compare an original photo with a modified one. */

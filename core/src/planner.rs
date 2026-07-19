@@ -37,8 +37,8 @@ pub struct MethodRecommendation {
 /// security notes. Unknown ids default to tier 1.
 fn stealth_tier(id: &str) -> u8 {
     match id {
-        // Sequential LSB has a clear statistical signature.
-        "lsb_image" | "append_eof" | "png_text" | "polyglot" | "whitespace" => 0,
+        // Sequential LSB and 2-bit LSB have clear statistical signatures.
+        "lsb_image" | "lsb_high" | "append_eof" | "png_text" | "polyglot" | "whitespace" => 0,
         // Randomized / spatial / basic text channels.
         "lsb_seeded" | "lsb_matching" | "edge_adaptive" | "pvd" | "wav_lsb" | "zero_width" => 1,
         // Transform-domain, adaptive-cost, matrix-coding, generative.

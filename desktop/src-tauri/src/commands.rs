@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use stegno_core::payload::{Revealed, Secret};
 use stegno_core::ByteChunk;
+use stegno_core::benchmark::detectability as core_detectability;
 use stegno_core::fingerprint::fingerprint as core_fingerprint;
 use stegno_core::passphrase::estimate_passphrase_strength as core_passphrase_strength;
 use stegno_core::planner::plan_embedding as core_plan_embedding;
@@ -384,6 +385,35 @@ pub struct StructuralReportDto {
     pub format: String,
     pub findings: Vec<StructuralFindingDto>,
     pub suspicious: bool,
+}
+
+/// How detectable a planned embed would be (dry-run with random data).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectabilityDto {
+    pub method_id: String,
+    pub clean_confidence: f64,
+    pub stego_confidence: f64,
+    pub delta: f64,
+    pub psnr_db: f64,
+    pub verdict: String,
+}
+
+#[tauri::command]
+pub fn detectability(
+    method_id: String,
+    cover: Vec<u8>,
+    payload_len: u64,
+) -> Result<DetectabilityDto, String> {
+    let r = core_detectability(method_id, cover, payload_len).map_err(|e| e.to_string())?;
+    Ok(DetectabilityDto {
+        method_id: r.method_id,
+        clean_confidence: r.clean_confidence,
+        stego_confidence: r.stego_confidence,
+        delta: r.delta,
+        psnr_db: r.psnr_db,
+        verdict: r.verdict,
+    })
 }
 
 /// One ranked method-fingerprint guess.

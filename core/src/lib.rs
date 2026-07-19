@@ -5,6 +5,7 @@
 //! so every technique inherits identical crypto for free.
 
 pub mod analysis;
+pub mod benchmark;
 pub mod compress;
 pub mod crypto;
 pub mod fec;
