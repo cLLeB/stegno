@@ -24,6 +24,7 @@ use stegno_core::planner::plan_embedding;
 use stegno_core::sanitize::sanitize;
 use stegno_core::sss::{sss_combine, sss_split, SecretShare};
 use stegno_core::structural::scan_structure;
+use stegno_core::visualize::{bit_plane, change_map};
 use stegno_core::{
     capacity, detect_lsb, embed_advanced, embed_multi, extract, extract_auto, list_methods,
     Recipient,
@@ -41,6 +42,8 @@ USAGE:
     stegno multi <cover> <out> --to <pass>:<message> [--to <pass>:<message> ...]
     stegno reveal <stego> --pass <P> [--method <M>] [--out <path>]
     stegno analyze <file>
+    stegno bitplane <image> <out> [--channel 0-2] [--plane 0-7]
+    stegno changemap <cover> <stego> <out>
     stegno scan <dir> [--threshold <0-100>] [--json]
     stegno sanitize <file> <out>
     stegno strength <passphrase>
@@ -75,6 +78,8 @@ fn run(args: &[String]) -> Result<(), String> {
         "multi" => cmd_multi(&args[1..]),
         "reveal" => cmd_reveal(&args[1..]),
         "analyze" => cmd_analyze(&args[1..]),
+        "bitplane" => cmd_bitplane(&args[1..]),
+        "changemap" => cmd_changemap(&args[1..]),
         "scan" => cmd_scan(&args[1..]),
         "sanitize" => cmd_sanitize(&args[1..]),
         "strength" => cmd_strength(&args[1..]),
@@ -513,6 +518,32 @@ fn cmd_scan(args: &[String]) -> Result<(), String> {
 
 fn json_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn cmd_bitplane(args: &[String]) -> Result<(), String> {
+    let p = positionals(args);
+    let (image, out) = match p.as_slice() {
+        [i, o] => (*i, *o),
+        _ => return Err("usage: stegno bitplane <image> <out> [--channel 0-2] [--plane 0-7]".into()),
+    };
+    let channel: u8 = flag(args, "--channel").map(|c| c.parse().unwrap_or(0)).unwrap_or(0);
+    let plane: u8 = flag(args, "--plane").map(|c| c.parse().unwrap_or(0)).unwrap_or(0);
+    let png = bit_plane(read(image)?, channel, plane).map_err(|e| e.to_string())?;
+    write(out, &png)?;
+    println!("bit-plane (channel {channel}, plane {plane}) -> {out}");
+    Ok(())
+}
+
+fn cmd_changemap(args: &[String]) -> Result<(), String> {
+    let p = positionals(args);
+    let (cover, stego, out) = match p.as_slice() {
+        [c, s, o] => (*c, *s, *o),
+        _ => return Err("usage: stegno changemap <cover> <stego> <out>".into()),
+    };
+    let png = change_map(read(cover)?, read(stego)?).map_err(|e| e.to_string())?;
+    write(out, &png)?;
+    println!("change-map -> {out}");
+    Ok(())
 }
 
 fn cmd_sanitize(args: &[String]) -> Result<(), String> {

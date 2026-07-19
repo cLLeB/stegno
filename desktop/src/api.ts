@@ -374,6 +374,28 @@ export function sssCombine(shares: SecretShare[]): Promise<number[]> {
   return invoke<number[]>("sss_combine", { shares });
 }
 
+/**
+ * Render bit-plane `plane` (0=LSB..7) of colour `channel` (0=R,1=G,2=B) as a
+ * black/white PNG — LSB planes of a stego image show the payload as noise.
+ */
+export function bitPlane(
+  image: number[],
+  channel: number,
+  plane: number
+): Promise<number[]> {
+  return invoke<number[]>("bit_plane", { image, channel, plane });
+}
+
+/** PNG painting every pixel that changed between cover and stego white. */
+export function changeMap(cover: number[], stego: number[]): Promise<number[]> {
+  return invoke<number[]>("change_map", { cover, stego });
+}
+
+/** Fraction of pixels changed between cover and stego, [0,1]. */
+export function changeRate(cover: number[], stego: number[]): Promise<number> {
+  return invoke<number>("change_rate", { cover, stego });
+}
+
 export function readFile(path: string): Promise<number[]> {
   return invoke<number[]>("read_file", { path });
 }

@@ -13,6 +13,9 @@ use stegno_core::sss::{
     sss_combine as core_sss_combine, sss_split as core_sss_split, SecretShare,
 };
 use stegno_core::structural::scan_structure as core_scan_structure;
+use stegno_core::visualize::{
+    bit_plane as core_bit_plane, change_map as core_change_map, change_rate as core_change_rate,
+};
 use stegno_core::{
     capacity as core_capacity, decoy_capacity as core_decoy_capacity, detect_lsb as core_detect,
     embed as core_embed, embed_advanced as core_embed_advanced, embed_robust as core_embed_robust,
@@ -512,6 +515,24 @@ pub fn sss_combine(shares: Vec<SecretShareDto>) -> Result<Vec<u8>, String> {
         .map(|s| SecretShare { x: s.x, y: s.y })
         .collect();
     core_sss_combine(core_shares).map_err(|e| e.to_string())
+}
+
+/// Render a bit-plane of a colour channel as a black/white PNG.
+#[tauri::command]
+pub fn bit_plane(image: Vec<u8>, channel: u8, plane: u8) -> Result<Vec<u8>, String> {
+    core_bit_plane(image, channel, plane).map_err(|e| e.to_string())
+}
+
+/// Paint every pixel that changed between cover and stego, as a PNG.
+#[tauri::command]
+pub fn change_map(cover: Vec<u8>, stego: Vec<u8>) -> Result<Vec<u8>, String> {
+    core_change_map(cover, stego).map_err(|e| e.to_string())
+}
+
+/// Fraction of pixels changed between cover and stego, [0,1].
+#[tauri::command]
+pub fn change_rate(cover: Vec<u8>, stego: Vec<u8>) -> Result<f64, String> {
+    core_change_rate(cover, stego).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

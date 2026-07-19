@@ -22,6 +22,7 @@ pub mod sanitize;
 pub mod seed;
 pub mod sss;
 pub mod structural;
+pub mod visualize;
 
 use method::{EmbedOpts, ExtractOpts};
 use payload::{Revealed, Secret};
