@@ -44,7 +44,7 @@ fn stealth_tier(id: &str) -> u8 {
         | "unicode_tags" => 1,
         // Transform-domain, adaptive-cost, matrix-coding, generative.
         "dwt_haar" | "jpeg_jsteg" | "jpeg_f5" | "jpeg_outguess" | "jpeg_mc" | "adaptive_cost"
-        | "mimic_words" => 2,
+        | "hill" | "mimic_words" => 2,
         _ => 1,
     }
 }
