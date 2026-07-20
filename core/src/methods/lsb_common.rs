@@ -197,6 +197,27 @@ pub fn replace_lsb(value: u8, bit: u8) -> u8 {
     (value & 0xFE) | (bit & 1)
 }
 
+/// Read every whole byte stored along `order` (channel LSBs), with no framing.
+///
+/// Unlike [`read_frame_with`], this makes no magic/length assumptions — the
+/// composite scheme uses it because one entry's framed payload can span several
+/// regions and several covers, so the frame header is only present at the very
+/// start of the concatenated stream, not in every region.
+pub fn read_region_bytes(img: &RgbaImage, order: &[u32]) -> Vec<u8> {
+    let n_bytes = order.len() / 8;
+    let mut out = Vec::with_capacity(n_bytes);
+    for byte_idx in 0..n_bytes {
+        let mut b = 0u8;
+        for shift in (0..8).rev() {
+            let bit = byte_idx * 8 + (7 - shift);
+            let off = slot_to_offset(order[bit]);
+            b |= (img.pixels[off] & 1) << shift;
+        }
+        out.push(b);
+    }
+    out
+}
+
 /// Read the framed payload back out of `stego` following `order`. The bit is
 /// always the channel LSB, so this is shared by every LSB-family variant.
 ///

@@ -193,6 +193,17 @@ pub fn unframe(stream: &[u8]) -> Result<Option<Vec<u8>>, StegnoError> {
 
 /// Like [`unframe`] but also returns the `flags` byte, so callers can tell
 /// whether the body needs a FEC-decode pass before decryption.
+/// Total length (header + body) of the framed stream that begins at `stream[0]`,
+/// or `None` if the magic/header isn't present. The body need not be present —
+/// used to plan how a frame was spread across several covers before reading it.
+pub fn framed_len(stream: &[u8]) -> Option<usize> {
+    if stream.len() < HDR_LEN || stream[..4] != MAGIC {
+        return None;
+    }
+    let len = u32::from_be_bytes([stream[7], stream[8], stream[9], stream[10]]) as usize;
+    Some(HDR_LEN + len)
+}
+
 pub fn unframe_with_flags(stream: &[u8]) -> Result<Option<(u8, Vec<u8>)>, StegnoError> {
     if stream.len() < HDR_LEN || stream[..4] != MAGIC {
         return Ok(None);

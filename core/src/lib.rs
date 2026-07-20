@@ -146,9 +146,23 @@ pub fn embed_advanced(
 ) -> Result<Vec<u8>, StegnoError> {
     let m = registry::lookup(&method_id)
         .ok_or_else(|| StegnoError::Internal("unknown method".into()))?;
+    let framed = build_frame(&secret, &passphrase, robustness, compress)?;
+    let opts = EmbedOpts {
+        seed: Some(derive_seed(&passphrase, Slot::Primary)),
+    };
+    m.embed(&cover, &framed, &opts)
+}
 
-    // serialize → optional compression.
-    let mut inner = payload::serialize_secret(&secret);
+/// Build the exact byte stream embedded into a carrier for one secret:
+/// serialize → optional compression → AES-GCM seal → optional Reed–Solomon FEC →
+/// framing (with the flags that let a plain extract reverse each step).
+fn build_frame(
+    secret: &Secret,
+    passphrase: &str,
+    robustness: u8,
+    compress: bool,
+) -> Result<Vec<u8>, StegnoError> {
+    let mut inner = payload::serialize_secret(secret);
     let mut flags: u8 = 0;
     if compress {
         if let Some(deflated) = compress::maybe_deflate(&inner) {
@@ -156,12 +170,8 @@ pub fn embed_advanced(
             flags |= payload::FLAG_COMPRESSED;
         }
     }
-
-    // encryption.
     let sealed =
-        crypto::seal(&inner, &passphrase).map_err(|_| StegnoError::Internal("seal".into()))?;
-
-    // optional FEC.
+        crypto::seal(&inner, passphrase).map_err(|_| StegnoError::Internal("seal".into()))?;
     let body = if robustness == 0 {
         sealed
     } else {
@@ -170,12 +180,48 @@ pub fn embed_advanced(
         fec::encode(&sealed, fec::parity_for_level(level))
             .map_err(|e| StegnoError::Internal(format!("fec encode: {e:?}")))?
     };
+    Ok(payload::frame_with_flags(&body, flags))
+}
 
-    let framed = payload::frame_with_flags(&body, flags);
-    let opts = EmbedOpts {
-        seed: Some(derive_seed(&passphrase, Slot::Primary)),
+/// Reverse [`build_frame`]: turn a raw framed byte stream back into a `Revealed`,
+/// or `None` if it is not a valid frame that `passphrase` decrypts. A spurious
+/// magic in random bytes (or an over-long length field) is treated as "not this
+/// one" rather than an error, so composite extraction can keep scanning.
+fn decode_frame(stream: &[u8], passphrase: &str) -> Result<Option<Revealed>, StegnoError> {
+    let (flags, body) = match payload::unframe_with_flags(stream) {
+        Ok(Some(fb)) => fb,
+        _ => return Ok(None),
     };
-    m.embed(&cover, &framed, &opts)
+    let sealed = match fec_decode_body(flags, body) {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+    match crypto::open(&sealed, passphrase) {
+        Ok(inner) => Ok(Some(revealed_from_inner(&maybe_inflate(flags, inner)?)?)),
+        Err(_) => Ok(None),
+    }
+}
+
+/// Spread `total` bytes across covers with capacities `caps`, as evenly as
+/// possible while respecting each cap, so every cover carries a needed share and
+/// all covers are required to rebuild. Deterministic in `(total, caps)` so the
+/// extractor can replay it from the frame length alone. `None` if `total` can't
+/// fit.
+fn split_sizes(total: usize, caps: &[usize]) -> Option<Vec<usize>> {
+    let m = caps.len();
+    let mut sizes = vec![0usize; m];
+    let mut remaining = total;
+    for j in 0..m {
+        let covers_left = m - j;
+        let take = remaining.div_ceil(covers_left).min(caps[j]).min(remaining);
+        sizes[j] = take;
+        remaining -= take;
+    }
+    if remaining > 0 {
+        None
+    } else {
+        Some(sizes)
+    }
 }
 
 /// Embed a **real** secret and a **decoy** secret into one cover, each sealed
@@ -281,6 +327,152 @@ pub fn decoy_capacity(cover: Vec<u8>) -> Result<u64, StegnoError> {
     Ok(methods::lsb_common::decoy_slot_capacity_bytes(
         img.width, img.height,
     ))
+}
+
+/// Largest number of independent entries one composite embed can carry.
+pub const MAX_COMPOSITE_ENTRIES: usize = MAX_RECIPIENTS;
+
+/// Hide several independent entries across one or more image covers in a single
+/// call — the one primitive behind every "mix" the UI offers.
+///
+/// Each entry is a `(secret, passphrase)` pair (`secret` may be text, a file, or
+/// many files). Entry `i` is placed at region index `i` of `entries.len()` in
+/// **every** cover — regions are disjoint by construction, so entries never
+/// collide — and its framed payload is split byte-wise across the covers in
+/// order. This subsumes all the older modes:
+///
+/// * 1 entry, 1 cover → a plain hide;
+/// * 2 entries, 1 cover → a real + decoy image (surrender either passphrase);
+/// * N entries, 1 cover → a multi-recipient image;
+/// * 1 entry, M covers → a secret split across covers (all required);
+/// * N entries, M covers → multi-recipient **and** split at once.
+///
+/// Every cover produced together is required to rebuild any entry that spans
+/// them. `robustness` (0..3 FEC) and `compress` apply to every entry. Returns one
+/// stego image per input cover, in the same order.
+#[uniffi::export]
+pub fn embed_composite(
+    covers: Vec<ByteChunk>,
+    entries: Vec<Recipient>,
+    robustness: u8,
+    compress: bool,
+) -> Result<Vec<ByteChunk>, StegnoError> {
+    let n = entries.len();
+    if n == 0 || n > MAX_COMPOSITE_ENTRIES {
+        return Err(StegnoError::Internal(format!(
+            "entries must be 1..={MAX_COMPOSITE_ENTRIES}"
+        )));
+    }
+    if covers.is_empty() {
+        return Err(StegnoError::Internal("at least one cover required".into()));
+    }
+    let mut imgs = covers
+        .iter()
+        .map(|c| image_io::decode_rgba(&c.bytes))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for (i, entry) in entries.iter().enumerate() {
+        let frame = build_frame(&entry.secret, &entry.passphrase, robustness, compress)?;
+        let key = derive_seed(&entry.passphrase, Slot::Primary);
+        let orders: Vec<Vec<u32>> = imgs
+            .iter()
+            .map(|img| methods::lsb_common::region_order(img.width, img.height, i as u32, n as u32, &key))
+            .collect();
+        let caps: Vec<usize> = orders.iter().map(|o| o.len() / 8).collect();
+        let sizes = split_sizes(frame.len(), &caps).ok_or(StegnoError::CoverTooSmall)?;
+        let mut pos = 0usize;
+        for (img, (order, &size)) in imgs.iter_mut().zip(orders.iter().zip(sizes.iter())) {
+            if size == 0 {
+                continue;
+            }
+            methods::lsb_common::embed_into(
+                img,
+                &frame[pos..pos + size],
+                &order[..size * 8],
+                methods::lsb_common::replace_lsb,
+            )?;
+            pos += size;
+        }
+    }
+
+    imgs.into_iter()
+        .map(|img| Ok(ByteChunk { bytes: image_io::encode_png(&img)? }))
+        .collect()
+}
+
+/// Reveal the one entry a `passphrase` unlocks from a set of composite covers.
+///
+/// Pass every cover that was produced together, in the same order. Tries each
+/// plausible entry count and index until the passphrase decrypts a frame; the
+/// AES-GCM tag makes a false match negligible. Returns `Revealed::None` when
+/// nothing matches (wrong passphrase, or a cover is missing).
+#[uniffi::export]
+pub fn extract_composite(
+    stegos: Vec<ByteChunk>,
+    passphrase: String,
+) -> Result<Revealed, StegnoError> {
+    if stegos.is_empty() {
+        return Ok(Revealed::None);
+    }
+    let imgs = stegos
+        .iter()
+        .map(|c| image_io::decode_rgba(&c.bytes))
+        .collect::<Result<Vec<_>, _>>()?;
+    let key = derive_seed(&passphrase, Slot::Primary);
+    for count in 1..=(MAX_COMPOSITE_ENTRIES as u32) {
+        for index in 0..count {
+            let raws: Vec<Vec<u8>> = imgs
+                .iter()
+                .map(|img| {
+                    let order =
+                        methods::lsb_common::region_order(img.width, img.height, index, count, &key);
+                    methods::lsb_common::read_region_bytes(img, &order)
+                })
+                .collect();
+            // The frame header lives at the very start of the first cover's region.
+            let total = match payload::framed_len(&raws[0]) {
+                Some(t) => t,
+                None => continue,
+            };
+            let caps: Vec<usize> = raws.iter().map(|r| r.len()).collect();
+            let sizes = match split_sizes(total, &caps) {
+                Some(s) => s,
+                None => continue,
+            };
+            let mut frame = Vec::with_capacity(total);
+            let mut ok = true;
+            for (raw, &size) in raws.iter().zip(sizes.iter()) {
+                if raw.len() < size {
+                    ok = false;
+                    break;
+                }
+                frame.extend_from_slice(&raw[..size]);
+            }
+            if ok {
+                if let Some(rev) = decode_frame(&frame, &passphrase)? {
+                    return Ok(rev);
+                }
+            }
+        }
+    }
+    Ok(Revealed::None)
+}
+
+/// Usable bytes for **one entry** when `entry_count` entries share `covers`
+/// (summed across every cover, minus one frame's overhead).
+#[uniffi::export]
+pub fn composite_capacity(covers: Vec<ByteChunk>, entry_count: u32) -> Result<u64, StegnoError> {
+    if covers.is_empty() || entry_count == 0 {
+        return Ok(0);
+    }
+    let mut total: u64 = 0;
+    for c in &covers {
+        let img = image_io::decode_rgba(&c.bytes)?;
+        let order =
+            methods::lsb_common::region_order(img.width, img.height, 0, entry_count, &[0u8; 32]);
+        total += (order.len() / 8) as u64;
+    }
+    Ok(total.saturating_sub(payload::overhead() as u64))
 }
 
 /// Image-quality comparison between a cover and its stego version.
