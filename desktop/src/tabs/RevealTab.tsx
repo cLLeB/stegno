@@ -16,7 +16,7 @@ export function RevealTab() {
       const rv: Revealed = r.revealed;
       if (rv.kind === "none") setOut({ ok: false, node: "No hidden data found (or wrong password)." });
       else if (rv.kind === "text") setOut({ ok: true, node: <><div>Revealed via <b>{r.methodId || "auto"}</b></div><pre>{rv.text}</pre></> });
-      else if (rv.kind === "file") { await saveBytes(rv.bytes, rv.name); setOut({ ok: true, node: `Recovered file ${rv.name} — saved.` }); }
+      else if (rv.kind === "file") { await saveBytes(rv.bytes, rv.name); setOut({ ok: true, node: `Recovered file ${rv.name} - saved.` }); }
       else if (rv.kind === "files") { for (const f of rv.files) await saveBytes(f.bytes, f.name); setOut({ ok: true, node: `Recovered ${rv.files.length} files.` }); }
     } catch (e) {
       setOut({ ok: false, node: errMsg(e) });
@@ -27,7 +27,7 @@ export function RevealTab() {
     <section className="panel active">
       <div className="card">
         <h2>Reveal a secret</h2>
-        <p className="hint">Choose a stego file and enter the password. We'll figure out the method automatically — including decoy and multi-recipient photos.</p>
+        <p className="hint">Open a hidden message. Method detected automatically.</p>
         <label>Stego file</label>
         <Drop label={file ? file.name : "Choose the file"} icon={file ? "✅" : "🗂️"} has={!!file} onClick={async () => setFile(await pickFile())} />
         <label>Password</label>

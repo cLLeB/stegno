@@ -54,7 +54,7 @@ export function HideTab({ methods }: { methods: MethodInfo[] }) {
         ? await embedTextWithDecoy(cover.bytes, text, pass, decoyText, decoyPass)
         : await embedAdvanced(method, cover.bytes, { kind: "text", text }, pass, robust as 0 | 1 | 2 | 3, compress);
       const saved = await saveBytes(stego, "stego.png");
-      setResult({ ok: true, msg: saved ? `Hidden in a ${(stego.length / 1024).toFixed(0)} KB image — saved.` : "Ready (save cancelled)." });
+      setResult({ ok: true, msg: saved ? `Hidden in a ${(stego.length / 1024).toFixed(0)} KB image saved.` : "Ready (save cancelled)." });
     } catch (e) {
       setResult({ ok: false, msg: errMsg(e) });
     } finally { setBusy(false); }
@@ -66,7 +66,7 @@ export function HideTab({ methods }: { methods: MethodInfo[] }) {
     <section className="panel active">
       <div className="card">
         <h2>Hide a secret</h2>
-        <p className="hint">Pick a cover, write your message, choose a password. Everything stays on your device.</p>
+        <p className="hint">Hide a message inside a photo.</p>
 
         <label>Cover image</label>
         <Drop label={cover ? cover.name : "Choose a photo (PNG, JPG…)"} icon={cover ? "✅" : "📷"} has={!!cover}
@@ -83,7 +83,7 @@ export function HideTab({ methods }: { methods: MethodInfo[] }) {
         <label className="check"><input type="checkbox" checked={decoy} onChange={(e) => setDecoy(e.target.checked)} /> <span>Add a decoy message <span className="small">plausible deniability</span></span></label>
         {decoy && (
           <>
-            <p className="hint" style={{ marginTop: 12 }}>Under coercion, reveal the decoy password — the real message stays hidden.</p>
+            <p className="hint" style={{ marginTop: 12 }}>Hand over the decoy password. The real one stays hidden.</p>
             <label>Decoy message</label>
             <textarea value={decoyText} onChange={(e) => setDecoyText(e.target.value)} placeholder="A believable, harmless message" />
             <label>Decoy password</label>
@@ -119,9 +119,9 @@ export function HideTab({ methods }: { methods: MethodInfo[] }) {
               <label>Toughness</label>
               <select value={robust} onChange={(e) => setRobust(Number(e.target.value))}>
                 <option value={0}>Standard</option>
-                <option value={1}>Rugged — survives light edits</option>
+                <option value={1}>Rugged</option>
                 <option value={2}>Extra rugged</option>
-                <option value={3}>Maximum — survives print/scan</option>
+                <option value={3}>Maximum</option>
               </select>
             </div>
             <div>

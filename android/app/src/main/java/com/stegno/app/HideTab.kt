@@ -44,7 +44,7 @@ internal fun HideTab(methods: List<MethodInfo>, readUri: (Uri) -> ByteArray, wri
     }
     val saver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
         val s = pendingStego
-        if (uri != null && s != null) { writeUri(uri, s); result = true to "Hidden in a ${s.size / 1024} KB image — saved." }
+        if (uri != null && s != null) { writeUri(uri, s); result = true to "Hidden in a ${s.size / 1024} KB image." }
     }
 
     LaunchedEffect(method, cover, decoy) {
@@ -54,7 +54,7 @@ internal fun HideTab(methods: List<MethodInfo>, readUri: (Uri) -> ByteArray, wri
         }.getOrNull()
     }
 
-    SectionCard("Hide a secret", "Pick a cover, write your message, choose a password. Everything stays on your device.") {
+    SectionCard("Hide a secret", "Hide a message inside a photo.") {
         Field("Cover image")
         PickButton(coverName?.let { "✅ ${it.takeLast(28)}" } ?: "📷 Choose a photo") { pick.launch(arrayOf("image/*")) }
 
@@ -87,7 +87,7 @@ internal fun HideTab(methods: List<MethodInfo>, readUri: (Uri) -> ByteArray, wri
             Text("Add a decoy message (deniability)")
         }
         if (decoy) {
-            Text("Under coercion, reveal the decoy password — the real message stays hidden.",
+            Text("Hand over the decoy password. The real one stays hidden.",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
             Field("Decoy message")
             OutlinedTextField(decoyText, { decoyText = it }, Modifier.fillMaxWidth(), minLines = 2,
@@ -135,7 +135,7 @@ internal fun HideTab(methods: List<MethodInfo>, readUri: (Uri) -> ByteArray, wri
 
         if (!decoy) {
             Field("Toughness")
-            val toughLabels = listOf("Standard", "Rugged — survives light edits", "Extra rugged", "Maximum — survives print/scan")
+            val toughLabels = listOf("Standard", "Rugged", "Extra rugged", "Maximum")
             LabeledDropdown(toughLabels, robust) { robust = it }
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(compress, { compress = it })

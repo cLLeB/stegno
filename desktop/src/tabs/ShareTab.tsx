@@ -26,7 +26,7 @@ export function ShareTab() {
     <section className="panel active">
       <div className="card">
         <h2>One photo, many people</h2>
-        <p className="hint">Hide a different message for each person. Each opens only their own with their own password.</p>
+        <p className="hint">A different message for each person.</p>
         <label>Cover image</label>
         <Drop label={cover ? cover.name : "Choose a photo"} icon={cover ? "✅" : "📷"} has={!!cover} onClick={async () => setCover(await pickFile(IMAGE_ACCEPT))} />
         {rows.map((r, i) => (

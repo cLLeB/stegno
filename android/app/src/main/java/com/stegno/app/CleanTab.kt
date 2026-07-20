@@ -31,7 +31,7 @@ internal fun CleanTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) ->
         if (uri != null && c != null) writeUri(uri, c)
     }
 
-    SectionCard("Remove hidden data", "Scrub a file so any hidden payload is destroyed — the picture still looks the same.") {
+    SectionCard("Remove hidden data", "Destroys any hidden payload. Photo looks the same.") {
         Field("File to clean")
         PickButton(name?.let { "✅ ${it.takeLast(28)}" } ?: "🧼 Choose a file") { pick.launch(arrayOf("*/*")) }
         PrimaryButton(if (busy) "Cleaning…" else "Sanitize & save", data != null, busy) {
@@ -43,7 +43,7 @@ internal fun CleanTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) ->
                     pending = r.cleaned
                     val ext = if (r.format == "image") "png" else "txt"
                     saver.launch("cleaned.$ext")
-                    out = true to if (r.changed) "Cleaned — any hidden payload destroyed." else "Nothing hidden was found."
+                    out = true to if (r.changed) "Cleaned. Hidden payload destroyed." else "Nothing hidden was found."
                 } catch (e: Exception) { out = false to (e.message ?: "Failed") }
             }
         }

@@ -117,7 +117,7 @@ export function embedSecret(
  * Hide a secret with Reed–Solomon error correction so it survives bounded
  * carrier damage (light recompression, a resize, a scanned print). `robustness`
  * ranges 1 (smallest overhead) to 3 (most resilient). Recovered with the plain
- * `extract` — the recipient only needs the passphrase.
+ * `extract` - the recipient only needs the passphrase.
  */
 export function embedRobust(
   methodId: string,
@@ -138,7 +138,7 @@ export function embedRobust(
 /**
  * Full hide pipeline: optional Reed–Solomon FEC (`robustness` 0 = off, 1–3) and
  * an optional compression pre-pass (`compress`). Both are recorded in the frame,
- * so a plain `extract` reverses them — the recipient only needs the passphrase.
+ * so a plain `extract` reverses them - the recipient only needs the passphrase.
  */
 export function embedAdvanced(
   methodId: string,
@@ -166,7 +166,7 @@ export interface PassphraseStrength {
   suggestions: string[];
 }
 
-/** Offline passphrase-strength estimate — no dictionary download, no network. */
+/** Offline passphrase-strength estimate - no dictionary download, no network. */
 export function passphraseStrength(
   passphrase: string
 ): Promise<PassphraseStrength> {
@@ -229,7 +229,7 @@ export interface RecipientInput {
 }
 
 /**
- * Hide several independent messages in one photo — each recipient reveals only
+ * Hide several independent messages in one photo - each recipient reveals only
  * their own with the ordinary `extract`, the others invisible without the key.
  * 2–8 recipients.
  */
@@ -330,7 +330,7 @@ export interface StructuralReport {
 }
 
 /**
- * Scan a file's container structure for signs of hidden data — appended data,
+ * Scan a file's container structure for signs of hidden data - appended data,
  * PNG/ZIP polyglots, private metadata chunks, or zero-width text. Complements
  * `detectLsb` (which looks at pixel statistics) with format-level checks.
  */
@@ -360,7 +360,7 @@ export interface Detectability {
 
 /**
  * Estimate how detectable embedding `payloadLen` bytes with `methodId` would be
- * on `cover` — a dry-run with random data measuring detector rise + PSNR cost.
+ * on `cover` - a dry-run with random data measuring detector rise + PSNR cost.
  */
 export function detectability(
   methodId: string,
@@ -401,7 +401,7 @@ export function sssCombine(shares: SecretShare[]): Promise<number[]> {
 
 /**
  * Render bit-plane `plane` (0=LSB..7) of colour `channel` (0=R,1=G,2=B) as a
- * black/white PNG — LSB planes of a stego image show the payload as noise.
+ * black/white PNG - LSB planes of a stego image show the payload as noise.
  */
 export function bitPlane(
   image: number[],

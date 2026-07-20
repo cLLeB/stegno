@@ -44,7 +44,7 @@ function BitPlaneCard() {
   return (
     <div className="card">
       <h2>Bit-plane viewer</h2>
-      <p className="hint">See a single bit layer of a photo — hidden LSB data shows up as visible noise.</p>
+      <p className="hint">Hidden LSB data shows up as noise.</p>
       <Drop label={img ? img.name : "Choose a photo"} icon={img ? "✅" : "📷"} has={!!img} onClick={async () => { setImg(await pickFile(IMAGE_ACCEPT)); setSrc(null); }} />
       <div className="row">
         <div><label>Channel</label><select value={channel} onChange={(e) => setChannel(Number(e.target.value))}><option value={0}>Red</option><option value={1}>Green</option><option value={2}>Blue</option></select></div>
@@ -80,7 +80,7 @@ function CompareCard() {
   return (
     <div className="card">
       <h2>Compare original vs stego</h2>
-      <p className="hint">Measure how much a photo changed after hiding — quality scores and a change map.</p>
+      <p className="hint">Quality scores and a change map.</p>
       <div className="row">
         <div><label>Original photo</label><Drop mini label={cover ? cover.name : "Original"} icon={cover ? "✅" : "📷"} has={!!cover} onClick={async () => setCover(await pickFile(IMAGE_ACCEPT))} /></div>
         <div><label>Stego photo</label><Drop mini label={stego ? stego.name : "Stego"} icon={stego ? "✅" : "🖼️"} has={!!stego} onClick={async () => setStego(await pickFile(IMAGE_ACCEPT))} /></div>
@@ -115,7 +115,7 @@ function DetectabilityCard({ methods }: { methods: MethodInfo[] }) {
   return (
     <div className="card">
       <h2>Will it be detectable?</h2>
-      <p className="hint">Estimate how much hiding a payload of a given size would raise a detector's suspicion.</p>
+      <p className="hint">How much a payload raises suspicion.</p>
       <Drop mini label={cover ? cover.name : "Choose a cover"} icon={cover ? "✅" : "📷"} has={!!cover} onClick={async () => setCover(await pickFile(IMAGE_ACCEPT))} />
       <div className="row">
         <div><label>Method</label><select value={method} onChange={(e) => setMethod(e.target.value)}>{methods.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></div>
@@ -152,7 +152,7 @@ function DiagnosticsCard() {
   return (
     <div className="card">
       <h2>Engine self-test &amp; benchmark</h2>
-      <p className="hint">Round-trip every method to confirm the engine is healthy, and time the password hashing on this device.</p>
+      <p className="hint">Test every method and time hashing.</p>
       <div className="row">
         <button className="ghost" style={{ flex: 1 }} disabled={!!busy} onClick={runTests}>{busy === "test" ? "Testing…" : "🩺 Run self-test"}</button>
         <button className="ghost" style={{ flex: 1 }} disabled={!!busy} onClick={runBench}>{busy === "bench" ? "Benchmarking…" : "⏱️ Benchmark hashing"}</button>

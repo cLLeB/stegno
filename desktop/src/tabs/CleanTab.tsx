@@ -15,7 +15,7 @@ export function CleanTab() {
       await saveBytes(r.cleaned, `${base}-clean${ext}`);
       setOut(
         <>
-          <div className="result-banner ok">🧼 {r.changed ? "Cleaned — any hidden payload destroyed." : "Nothing hidden was found; copied as-is."}</div>
+          <div className="result-banner ok">🧼 {r.changed ? "Cleaned. Hidden payload destroyed." : "Nothing hidden was found; copied as-is."}</div>
           {r.actions.length > 0 && <ul className="small">{r.actions.map((a, i) => <li key={i}>{a}</li>)}</ul>}
         </>
       );
@@ -28,7 +28,7 @@ export function CleanTab() {
     <section className="panel active">
       <div className="card">
         <h2>Remove hidden data</h2>
-        <p className="hint">Scrub a file so any hidden payload is destroyed — the picture still looks the same.</p>
+        <p className="hint">Destroys any hidden payload. Photo looks the same.</p>
         <label>File to clean</label>
         <Drop label={file ? file.name : "Choose a file"} icon={file ? "✅" : "🧼"} has={!!file} onClick={async () => { setFile(await pickFile()); setOut(null); }} />
         <button className="primary" disabled={!file} onClick={doClean}>Sanitize & save</button>

@@ -29,7 +29,7 @@ export function KeysTab() {
     <section className="panel active">
       <div className="card">
         <h2>Split a secret into key-shares</h2>
-        <p className="hint">Turn a passphrase or note into N shares — any threshold rebuilds it, fewer reveal nothing (Shamir Secret Sharing).</p>
+        <p className="hint">Any threshold of shares rebuilds a secret.</p>
         <Seg<Mode> options={[{ id: "split", label: "Split" }, { id: "combine", label: "Combine" }]} value={mode} onChange={setMode} />
         {mode === "split" ? <SplitPane /> : <CombinePane />}
       </div>

@@ -19,7 +19,7 @@ internal fun SplitTab(methods: List<MethodInfo>, readUri: (Uri) -> ByteArray, wr
     val imageMethods = methods.filter { it.media == "Image" }
 
     SectionCard("Split across several photos",
-        "Spread one secret over multiple photos — every photo is needed to rebuild it. Losing any one keeps the secret safe.") {
+        "Every photo is needed to rebuild the secret.") {
         Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
             listOf("Hide across", "Reveal from").forEachIndexed { i, label ->
                 FilterChip(selected = mode == i, onClick = { mode = i }, label = { Text(label) },

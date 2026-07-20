@@ -41,7 +41,7 @@ private fun BitPlaneCard(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray)
         if (uri != null && r != null) writeUri(uri, r)
     }
 
-    SectionCard("Bit-plane viewer", "See a single bit layer of a photo — hidden LSB data shows up as visible noise.") {
+    SectionCard("Bit-plane viewer", "Hidden LSB data shows up as noise.") {
         PickButton(if (img != null) "✅ Photo loaded" else "📷 Choose a photo") { pick.launch(arrayOf("image/*")) }
         Field("Channel")
         LabeledDropdown(listOf("Red", "Green", "Blue"), channel) { channel = it }
@@ -84,7 +84,7 @@ private fun CompareCard(readUri: (Uri) -> ByteArray) {
         uri?.let { stego = readUri(it); rate = null; q = null; map = null }
     }
 
-    SectionCard("Compare original vs stego", "Measure how much a photo changed after hiding — quality scores and a change map.") {
+    SectionCard("Compare original vs stego", "Quality scores and a change map.") {
         Field("Original photo")
         PickButton(if (cover != null) "✅ Original loaded" else "📷 Choose original") { pickCover.launch(arrayOf("image/*")) }
         Field("Stego photo")
@@ -125,7 +125,7 @@ private fun DetectabilityCard(methods: List<MethodInfo>, readUri: (Uri) -> ByteA
         uri?.let { cover = readUri(it); report = null }
     }
 
-    SectionCard("Will it be detectable?", "Estimate how much hiding a payload of a given size would raise a detector's suspicion.") {
+    SectionCard("Will it be detectable?", "How much a payload raises suspicion.") {
         PickButton(if (cover != null) "✅ Cover loaded" else "📷 Choose a cover") { pick.launch(arrayOf("image/*")) }
         Field("Method")
         MethodDropdown(methods, method) { method = it }
@@ -160,7 +160,7 @@ private fun DoctorCard() {
     var busy by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<SelfTestResult>>(emptyList()) }
 
-    SectionCard("Engine self-test", "Run every method through a hide→reveal round-trip to confirm the engine is healthy.") {
+    SectionCard("Engine self-test", "Round-trip every method to check it works.") {
         PrimaryButton(if (busy) "Testing…" else "Run self-test", true, busy) {
             busy = true
             run(scope, { busy = false }) {
@@ -171,7 +171,7 @@ private fun DoctorCard() {
             val passed = results.count { it.ok }
             Banner(passed == results.size, "$passed of ${results.size} methods passed")
             results.forEach { r ->
-                Text("${if (r.ok) "✅" else "❌"} ${r.methodId} — ${r.detail}",
+                Text("${if (r.ok) "✅" else "❌"} ${r.methodId} - ${r.detail}",
                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
             }
         }
@@ -185,7 +185,7 @@ private fun BenchmarkCard() {
     var busy by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<KdfBenchmark?>(null) }
 
-    SectionCard("Password hashing benchmark", "Time the Argon2id key derivation on this device — slower is stronger against brute force.") {
+    SectionCard("Password hashing benchmark", "Time password hashing. Slower is stronger.") {
         PrimaryButton(if (busy) "Benchmarking…" else "Run benchmark", true, busy) {
             busy = true
             run(scope, { busy = false }) {

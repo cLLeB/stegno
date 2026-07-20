@@ -12,7 +12,7 @@ export function SplitTab({ methods }: { methods: MethodInfo[] }) {
     <section className="panel active">
       <div className="card">
         <h2>Split across several photos</h2>
-        <p className="hint">Spread one secret over multiple photos — every photo is needed to rebuild it. Losing any one keeps the secret safe.</p>
+        <p className="hint">Every photo is needed to rebuild the secret.</p>
         <Seg<Mode> options={[{ id: "hide", label: "Hide across" }, { id: "reveal", label: "Reveal from" }]} value={mode} onChange={setMode} />
         {mode === "hide" ? <SplitHide methods={imageMethods} /> : <SplitReveal methods={imageMethods} />}
       </div>
@@ -34,7 +34,7 @@ function SplitHide({ methods }: { methods: MethodInfo[] }) {
       const parts = await embedSplit(method, covers.map((c) => c.bytes), { kind: "text", text }, pass);
       let saved = 0;
       for (let i = 0; i < parts.length; i++) if (await saveBytes(parts[i], `part${i + 1}.png`)) saved++;
-      setResult({ ok: true, msg: `Saved ${saved} of ${parts.length} photos — all are needed to rebuild.` });
+      setResult({ ok: true, msg: `Saved ${saved} of ${parts.length} photos. All are needed.` });
     } catch (e) {
       setResult({ ok: false, msg: errMsg(e) });
     } finally { setBusy(false); }
@@ -69,7 +69,7 @@ function SplitReveal({ methods }: { methods: MethodInfo[] }) {
       const r: Revealed = await extractSplit(method, stegos.map((s) => s.bytes), pass);
       if (r.kind === "none") setOut({ ok: false, node: "Nothing found (wrong password, method, or missing a photo)." });
       else if (r.kind === "text") setOut({ ok: true, node: <><div>Rebuilt the secret.</div><pre>{r.text}</pre></> });
-      else if (r.kind === "file") { await saveBytes(r.bytes, r.name); setOut({ ok: true, node: `Recovered file ${r.name} — saved.` }); }
+      else if (r.kind === "file") { await saveBytes(r.bytes, r.name); setOut({ ok: true, node: `Recovered file ${r.name} - saved.` }); }
       else if (r.kind === "files") { for (const f of r.files) await saveBytes(f.bytes, f.name); setOut({ ok: true, node: `Recovered ${r.files.length} files.` }); }
     } catch (e) {
       setOut({ ok: false, node: errMsg(e) });

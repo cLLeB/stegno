@@ -49,7 +49,7 @@ export function InspectTab() {
     <section className="panel active">
       <div className="card">
         <h2>Inspect a file</h2>
-        <p className="hint">Check any file for signs of hidden data — structure, statistics, and a best guess at the method.</p>
+        <p className="hint">Structure, statistics, and a method guess.</p>
         <label>File to inspect</label>
         <Drop label={file ? file.name : "Choose a file"} icon={file ? "✅" : "🔍"} has={!!file} onClick={async () => { setFile(await pickFile()); setOut(null); }} />
         <button className="primary" disabled={!file} onClick={doInspect}>Inspect</button>

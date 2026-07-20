@@ -4,17 +4,23 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -48,27 +54,41 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/* ---------------- Brand theme ---------------- */
-internal val Indigo = Color(0xFF6366F1)
-internal val Violet = Color(0xFF8B5CF6)
+/* ---------------- Brand theme (deep blue) ---------------- */
+private val BlueDeep = Color(0xFF1F56D6)
+private val BlueDeeper = Color(0xFF163F9E)
 private val StegnoLight = lightColorScheme(
-    primary = Indigo, secondary = Violet,
+    primary = BlueDeep, secondary = BlueDeeper,
     // Softened surfaces (not glaring white) with a distinctly darker outline so
     // borders on fields, cards and dropdowns stay clearly visible.
-    background = Color(0xFFE7E4F1), surface = Color(0xFFF4F2FB),
-    surfaceVariant = Color(0xFFEAE8F5), outline = Color(0xFFA49FC6),
-    outlineVariant = Color(0xFFC2BEDB),
-    onSurface = Color(0xFF1C1B2E), onBackground = Color(0xFF1C1B2E),
+    background = Color(0xFFE5E9F2), surface = Color(0xFFF2F5FB),
+    surfaceVariant = Color(0xFFE7ECF6), outline = Color(0xFF94A1BF),
+    outlineVariant = Color(0xFFBDC7DB),
+    primaryContainer = Color(0xFFDCE7FB), onPrimaryContainer = BlueDeep,
+    onSurface = Color(0xFF15203A), onBackground = Color(0xFF15203A),
 )
 private val StegnoDark = darkColorScheme(
-    primary = Color(0xFF818CF8), secondary = Color(0xFFA78BFA),
-    background = Color(0xFF0D0C14), surface = Color(0xFF17161F),
-    surfaceVariant = Color(0xFF1E1C28), outline = Color(0xFF3A3750),
-    onSurface = Color(0xFFECEAF5), onBackground = Color(0xFFECEAF5),
+    // Near-black surfaces with a faint blue tint.
+    primary = Color(0xFF4D8BFF), secondary = Color(0xFF2F6BF0),
+    background = Color(0xFF030509), surface = Color(0xFF0A0E17),
+    surfaceVariant = Color(0xFF111725), outline = Color(0xFF303C58),
+    outlineVariant = Color(0xFF1C2439),
+    primaryContainer = Color(0xFF0E1A2E), onPrimaryContainer = Color(0xFF4D8BFF),
+    onSurface = Color(0xFFE9EEF8), onBackground = Color(0xFFE9EEF8),
 )
 
 /* ---------------- Root ---------------- */
-private data class TabDef(val label: String, val emoji: String)
+private data class Sub(val id: String, val label: String)
+private data class Grp(val label: String, val subs: List<Sub>)
+
+private val GROUPS = listOf(
+    Grp("🔒 Hide", listOf(
+        Sub("hide", "🖼️ One photo"), Sub("share", "👥 Recipients"),
+        Sub("split", "🧩 Split photos"), Sub("keys", "🔐 Key-shares"))),
+    Grp("🔑 Reveal", listOf(Sub("reveal", "🔑 Reveal"))),
+    Grp("🔬 Analyze", listOf(
+        Sub("inspect", "🔍 Inspect"), Sub("lab", "🧪 Lab"), Sub("clean", "🧼 Clean"))),
+)
 
 @Composable
 fun StegnoApp(
@@ -77,78 +97,78 @@ fun StegnoApp(
     isDark: Boolean,
     onToggleTheme: () -> Unit,
 ) {
-    var tab by remember { mutableStateOf(0) }
+    var group by remember { mutableStateOf(0) }
+    var panel by remember { mutableStateOf("hide") }
     var methods by remember { mutableStateOf<List<MethodInfo>>(emptyList()) }
 
     LaunchedEffect(Unit) {
         methods = runCatching { withContext(Dispatchers.Default) { listMethods() } }.getOrDefault(emptyList())
     }
 
-    val tabs = listOf(
-        TabDef("Hide", "🖼️"), TabDef("Reveal", "🔑"), TabDef("Share", "👥"),
-        TabDef("Split", "🧩"), TabDef("Keys", "🔐"), TabDef("Inspect", "🔍"),
-        TabDef("Lab", "🧪"), TabDef("Clean", "🧼"),
-    )
-
     Column(Modifier.fillMaxSize()) {
-        Hero(isDark, onToggleTheme)
-        ScrollableTabRow(
-            selectedTabIndex = tab,
-            edgePadding = 12.dp,
-            containerColor = MaterialTheme.colorScheme.background,
+        // Top: just the name and the theme toggle.
+        Row(
+            Modifier.fillMaxWidth().padding(start = 18.dp, end = 12.dp, top = 14.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            tabs.forEachIndexed { i, t ->
-                Tab(selected = tab == i, onClick = { tab = i },
-                    text = { Text("${t.emoji} ${t.label}", fontWeight = FontWeight.SemiBold) })
-            }
-        }
-        Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
-        ) {
-            when (tab) {
-                0 -> HideTab(methods, readUri, writeUri)
-                1 -> RevealTab(readUri, writeUri)
-                2 -> ShareTab(readUri, writeUri)
-                3 -> SplitTab(methods, readUri, writeUri)
-                4 -> KeysTab()
-                5 -> InspectTab(readUri)
-                6 -> LabTab(methods, readUri, writeUri)
-                else -> CleanTab(readUri, writeUri)
-            }
-            Spacer(Modifier.height(18.dp))
-            Text(
-                "Runs entirely on your device — no uploads, no servers. · ${methods.size} methods",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-            Spacer(Modifier.height(24.dp))
-        }
-    }
-}
-
-@Composable
-private fun Hero(isDark: Boolean, onToggleTheme: () -> Unit) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .background(Brush.linearGradient(listOf(Indigo, Violet)))
-            .padding(horizontal = 18.dp, vertical = 20.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(44.dp).background(Color.White.copy(alpha = 0.18f), RoundedCornerShape(13.dp)),
-                contentAlignment = Alignment.Center
-            ) { Text("🔒", fontSize = 22.sp) }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Stegno", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
-                Text("Hide encrypted messages in photos, text & files.",
-                    color = Color.White.copy(alpha = 0.9f), fontSize = 12.5.sp)
-            }
+            Text("Stegno", color = MaterialTheme.colorScheme.primary, fontSize = 22.sp,
+                fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
             Surface(
-                onClick = onToggleTheme, shape = RoundedCornerShape(11.dp),
-                color = Color.White.copy(alpha = 0.18f)
-            ) { Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) { Text(if (isDark) "☀️" else "🌙", fontSize = 17.sp) } }
+                onClick = onToggleTheme, shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            ) { Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Text(if (isDark) "☀️" else "🌙", fontSize = 17.sp) } }
+        }
+
+        // Three simple groups.
+        TabRow(selectedTabIndex = group, containerColor = MaterialTheme.colorScheme.background) {
+            GROUPS.forEachIndexed { i, g ->
+                Tab(selected = group == i, onClick = { group = i; panel = g.subs.first().id },
+                    text = { Text(g.label, fontWeight = FontWeight.SemiBold) })
+            }
+        }
+
+        // Sub-options for the selected group (only when there is more than one).
+        val current = GROUPS[group]
+        if (current.subs.size > 1) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                current.subs.forEach { s ->
+                    FilterChip(selected = panel == s.id, onClick = { panel = s.id },
+                        label = { Text(s.label) }, modifier = Modifier.padding(end = 8.dp))
+                }
+            }
+        }
+
+        // Content, sliding in on each switch.
+        AnimatedContent(
+            targetState = panel,
+            transitionSpec = {
+                (slideInHorizontally(tween(280)) { it / 4 } + fadeIn(tween(280))) togetherWith fadeOut(tween(140))
+            },
+            modifier = Modifier.weight(1f),
+            label = "panel",
+        ) { p ->
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+                when (p) {
+                    "hide" -> HideTab(methods, readUri, writeUri)
+                    "reveal" -> RevealTab(readUri, writeUri)
+                    "share" -> ShareTab(readUri, writeUri)
+                    "split" -> SplitTab(methods, readUri, writeUri)
+                    "keys" -> KeysTab()
+                    "inspect" -> InspectTab(readUri)
+                    "lab" -> LabTab(methods, readUri, writeUri)
+                    else -> CleanTab(readUri, writeUri)
+                }
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    "Runs on your device. No uploads. · ${methods.size} methods",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                Spacer(Modifier.height(24.dp))
+            }
         }
     }
 }

@@ -34,7 +34,7 @@ internal fun ShareTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) ->
         if (uri != null && s != null) { writeUri(uri, s); result = true to "Hid ${valid.size} messages in one photo." }
     }
 
-    SectionCard("One photo, many people", "Hide a different message for each person. Each opens only their own with their own password.") {
+    SectionCard("One photo, many people", "A different message for each person.") {
         Field("Cover image")
         PickButton(name?.let { "✅ ${it.takeLast(28)}" } ?: "📷 Choose a photo") { pick.launch(arrayOf("image/*")) }
         rows.forEachIndexed { i, row ->

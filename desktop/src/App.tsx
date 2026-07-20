@@ -26,22 +26,27 @@ function useTheme(): () => void {
   };
 }
 
-type Tab = "hide" | "reveal" | "share" | "split" | "keys" | "inspect" | "lab" | "clean";
+type Panel = "hide" | "reveal" | "share" | "split" | "keys" | "inspect" | "lab" | "clean";
+type Group = "hide" | "reveal" | "analyze";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "hide", label: "🖼️ Hide" },
-  { id: "reveal", label: "🔑 Reveal" },
-  { id: "share", label: "👥 Share" },
-  { id: "split", label: "🧩 Split" },
-  { id: "keys", label: "🔐 Keys" },
-  { id: "inspect", label: "🔍 Inspect" },
-  { id: "lab", label: "🧪 Lab" },
-  { id: "clean", label: "🧼 Clean" },
+interface GroupDef {
+  id: Group;
+  label: string;
+  subs: { id: Panel; label: string }[];
+}
+const GROUPS: GroupDef[] = [
+  { id: "hide", label: "🔒 Hide", subs: [
+    { id: "hide", label: "🖼️ One photo" }, { id: "share", label: "👥 Recipients" },
+    { id: "split", label: "🧩 Split photos" }, { id: "keys", label: "🔐 Key-shares" }] },
+  { id: "reveal", label: "🔑 Reveal", subs: [{ id: "reveal", label: "🔑 Reveal" }] },
+  { id: "analyze", label: "🔬 Analyze", subs: [
+    { id: "inspect", label: "🔍 Inspect" }, { id: "lab", label: "🧪 Lab" }, { id: "clean", label: "🧼 Clean" }] },
 ];
 
 export default function App() {
   const toggleTheme = useTheme();
-  const [tab, setTab] = useState<Tab>("hide");
+  const [group, setGroup] = useState<Group>("hide");
+  const [panel, setPanel] = useState<Panel>("hide");
   const [methods, setMethods] = useState<MethodInfo[]>([]);
   const themeIcon = () =>
     (document.documentElement.getAttribute("data-theme") ||
@@ -53,39 +58,45 @@ export default function App() {
     listMethods().then(setMethods).catch(() => {});
   }, []);
 
+  function selectGroup(g: GroupDef) {
+    setGroup(g.id);
+    setPanel(g.subs[0].id);
+  }
+  const activeGroup = GROUPS.find((g) => g.id === group)!;
+
   return (
     <>
-      <div className="hero">
-        <div className="hero-inner">
-          <div className="badge">🔒</div>
-          <div>
-            <h1>Stegno</h1>
-            <p>Hide encrypted messages inside ordinary photos, text &amp; files.</p>
-          </div>
-          <div className="hero-actions">
+      <header className="topbar">
+        <div className="topbar-inner">
+          <div className="topbar-row">
+            <span className="brand">Stegno</span>
             <button className="theme-toggle" onClick={toggleTheme} title="Switch theme">{themeIcon()}</button>
-            <span className="offline">On-device</span>
           </div>
+          <nav className="tabs">
+            {GROUPS.map((g) => (
+              <button key={g.id} className={group === g.id ? "active" : ""} onClick={() => selectGroup(g)}>{g.label}</button>
+            ))}
+          </nav>
+          {activeGroup.subs.length > 1 && (
+            <nav className="subtabs">
+              {activeGroup.subs.map((s) => (
+                <button key={s.id} className={panel === s.id ? "active" : ""} onClick={() => setPanel(s.id)}>{s.label}</button>
+              ))}
+            </nav>
+          )}
         </div>
-      </div>
+      </header>
       <main>
-        <nav className="tabs">
-          {TABS.map((t) => (
-            <button key={t.id} className={tab === t.id ? "active" : ""} onClick={() => setTab(t.id)}>
-              {t.label}
-            </button>
-          ))}
-        </nav>
-        {tab === "hide" && <HideTab methods={methods} />}
-        {tab === "reveal" && <RevealTab />}
-        {tab === "share" && <ShareTab />}
-        {tab === "split" && <SplitTab methods={methods} />}
-        {tab === "keys" && <KeysTab />}
-        {tab === "inspect" && <InspectTab />}
-        {tab === "lab" && <LabTab methods={methods} />}
-        {tab === "clean" && <CleanTab />}
+        {panel === "hide" && <HideTab methods={methods} />}
+        {panel === "reveal" && <RevealTab />}
+        {panel === "share" && <ShareTab />}
+        {panel === "split" && <SplitTab methods={methods} />}
+        {panel === "keys" && <KeysTab />}
+        {panel === "inspect" && <InspectTab />}
+        {panel === "lab" && <LabTab methods={methods} />}
+        {panel === "clean" && <CleanTab />}
       </main>
-      <footer>Runs entirely on your device — no uploads, no servers. · {methods.length} methods</footer>
+      <footer>Runs on your device. No uploads. · {methods.length} methods</footer>
     </>
   );
 }

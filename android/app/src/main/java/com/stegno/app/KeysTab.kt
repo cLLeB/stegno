@@ -13,7 +13,7 @@ import uniffi.stegno_core.SecretShare
 import uniffi.stegno_core.sssCombine
 import uniffi.stegno_core.sssSplit
 
-/** "3-1a2b3c…" — the x-coordinate, a dash, then the y bytes in hex. */
+/** "3-1a2b3c…" - the x-coordinate, a dash, then the y bytes in hex. */
 private fun SecretShare.encode(): String =
     "${x.toInt()}-" + y.joinToString("") { "%02x".format(it) }
 
@@ -36,7 +36,7 @@ internal fun KeysTab() {
     var mode by remember { mutableStateOf(0) } // 0 = split, 1 = combine
 
     SectionCard("Split a secret into key-shares",
-        "Turn a passphrase or note into N shares — any threshold of them rebuilds it, fewer reveal nothing (Shamir Secret Sharing).") {
+        "Any threshold of shares rebuilds a secret.") {
         Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
             listOf("Split", "Combine").forEachIndexed { i, label ->
                 FilterChip(selected = mode == i, onClick = { mode = i }, label = { Text(label) },
@@ -104,7 +104,7 @@ private fun ColumnScope.CombinePane(scope: kotlinx.coroutines.CoroutineScope) {
             try {
                 val bytes = withContext(Dispatchers.Default) { sssCombine(parsed) }
                 out = true to String(bytes)
-            } catch (e: Exception) { out = false to (e.message ?: "Could not reconstruct — wrong or too few shares.") }
+            } catch (e: Exception) { out = false to (e.message ?: "Could not reconstruct - wrong or too few shares.") }
         }
     }
     out?.let { (ok, msg) ->

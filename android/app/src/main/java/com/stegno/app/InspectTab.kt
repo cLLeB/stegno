@@ -27,7 +27,7 @@ internal fun InspectTab(readUri: (Uri) -> ByteArray) {
         data = readUri(uri); name = uri.lastPathSegment; report = null; guesses = emptyList(); detection = null
     }
 
-    SectionCard("Inspect a file", "Check any file for signs of hidden data — structure, statistics, and a best guess at the method.") {
+    SectionCard("Inspect a file", "Structure, statistics, and a method guess.") {
         Field("File to inspect")
         PickButton(name?.let { "✅ ${it.takeLast(28)}" } ?: "🔍 Choose a file") { pick.launch(arrayOf("*/*")) }
         PrimaryButton(if (busy) "Inspecting…" else "Inspect", data != null, busy) {

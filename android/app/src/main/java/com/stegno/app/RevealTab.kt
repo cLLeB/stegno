@@ -33,7 +33,7 @@ internal fun RevealTab(readUri: (Uri) -> ByteArray, writeUri: (Uri, ByteArray) -
         if (uri != null && f != null) writeUri(uri, f.second)
     }
 
-    SectionCard("Reveal a secret", "Choose a stego file and enter the password. We'll figure out the method automatically.") {
+    SectionCard("Reveal a secret", "Open a hidden message. Method detected automatically.") {
         Field("Stego file")
         PickButton(name?.let { "✅ ${it.takeLast(28)}" } ?: "🗂️ Choose the file") { pick.launch(arrayOf("*/*")) }
         Field("Password")
