@@ -3,92 +3,58 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#6366f1" />
-  <title>Stegno — hide anything, anywhere</title>
+  <meta name="theme-color" content="#1f56d6" />
+  <title>Stegno</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%236366f1'/%3E%3Cpath d='M50 22a14 14 0 0 0-14 14v8h-4a4 4 0 0 0-4 4v26a4 4 0 0 0 4 4h36a4 4 0 0 0 4-4V48a4 4 0 0 0-4-4h-4v-8a14 14 0 0 0-14-14zm-8 22v-8a8 8 0 0 1 16 0v8z' fill='white'/%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%231f56d6'/%3E%3Cpath d='M50 22a14 14 0 0 0-14 14v8h-4a4 4 0 0 0-4 4v26a4 4 0 0 0 4 4h36a4 4 0 0 0 4-4V48a4 4 0 0 0-4-4h-4v-8a14 14 0 0 0-14-14zm-8 22v-8a8 8 0 0 1 16 0v8z' fill='white'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="hero">
-    <div class="hero-inner">
-      <div class="badge">🔒</div>
-      <div>
-        <h1>Stegno</h1>
-        <p>Hide encrypted messages inside ordinary photos, text &amp; files.</p>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="topbar-row">
+        <span class="brand">Stegno</span>
+        <button class="theme-toggle" id="themeToggle" aria-label="Switch theme" title="Switch theme">🌙</button>
       </div>
-      <div class="hero-actions">
-        <button class="theme-toggle" id="themeToggle" aria-label="Switch light or dark theme" title="Switch theme">🌙</button>
-        <span class="offline">On-device</span>
-      </div>
+      <nav class="tabs" id="tabs">
+        <button data-group="hide" class="active">🔒 Hide</button>
+        <button data-group="reveal">🔑 Reveal</button>
+        <button data-group="analyze">🔬 Analyze</button>
+      </nav>
+      <nav class="subtabs" id="subtabs"></nav>
     </div>
-  </div>
+  </header>
 
   <main>
-    <nav class="tabs" id="tabs">
-      <button data-tab="hide" class="active">🖼️ Hide</button>
-      <button data-tab="reveal">🔑 Reveal</button>
-      <button data-tab="share">👥 Share</button>
-      <button data-tab="split">🧩 Split</button>
-      <button data-tab="keys">🔐 Keys</button>
-      <button data-tab="analyze">🔍 Inspect</button>
-      <button data-tab="lab">🧪 Lab</button>
-      <button data-tab="clean">🧼 Clean</button>
-    </nav>
-
-    <!-- HIDE -->
-    <section class="panel active" id="panel-hide">
+    <!-- HIDE (unified composer) -->
+    <section class="panel active" id="panel-compose">
       <div class="card">
-        <h2>Hide a secret</h2>
-        <p class="hint">Pick a cover, write your message, choose a password. Everything stays on your device.</p>
+        <h2>Hide</h2>
+        <p class="hint">Add cover photos and one or more secrets. Mix freely.</p>
 
-        <label>Cover image</label>
-        <div class="drop" id="hideDrop"><span class="big">📷</span>Tap to choose a photo (PNG, JPG…)</div>
-        <input type="file" id="hideCover" accept="image/*" hidden />
+        <label>Cover photos</label>
+        <div class="drop" id="cmpCoversDrop"><span class="big">📷</span>Choose one or more photos</div>
+        <input type="file" id="cmpCoversInput" accept="image/*" multiple hidden />
 
-        <label>Secret message</label>
-        <textarea id="hideText" placeholder="Type the message you want to hide…"></textarea>
+        <label>Secrets</label>
+        <div id="cmpEntries"></div>
+        <button class="ghost" id="cmpAddEntry" style="margin-top:10px">+ Add another secret</button>
+        <div class="small" id="cmpCap"></div>
 
-        <label>Password</label>
-        <input type="password" id="hidePass" placeholder="A strong passphrase" autocomplete="new-password" />
-        <div class="meter"><span id="strengthBar" style="width:0"></span></div>
-        <div class="small" id="strengthText">Strength appears as you type.</div>
-
-        <div class="check"><input type="checkbox" id="hideDecoy" /><label for="hideDecoy">Add a decoy message <span class="small">plausible deniability</span></label></div>
-        <div id="decoyFields" hidden>
-          <p class="hint" style="margin-top:12px">Under coercion, reveal the decoy password — the real message stays hidden.</p>
-          <label>Decoy message</label>
-          <textarea id="hideDecoyText" placeholder="A believable, harmless message"></textarea>
-          <label>Decoy password</label>
-          <input type="password" id="hideDecoyPass" placeholder="The password you'd hand over" autocomplete="new-password" />
-        </div>
-
-        <div id="hideAdvanced">
-          <label>Method</label>
-          <select id="hideMethod"></select>
-          <button class="ghost" id="planBtn" style="margin-top:10px;width:100%">💡 Suggest the best method</button>
-          <div id="planOut"></div>
-        </div>
-        <div class="small" id="capacityText"></div>
-
-        <div class="row" id="hideToughRow">
+        <div class="row" style="margin-top:14px">
           <div>
             <label>Toughness</label>
-            <select id="hideRobust">
-              <option value="0">Standard</option>
-              <option value="1">Rugged — survives light edits</option>
-              <option value="2">Extra rugged</option>
-              <option value="3">Maximum — survives print/scan</option>
-            </select>
+            <select id="cmpRobust"><option value="0">Standard</option><option value="1">Rugged</option><option value="2">Extra rugged</option><option value="3">Maximum</option></select>
           </div>
           <div>
             <label>Squeeze</label>
-            <div class="check"><input type="checkbox" id="hideCompress" /><label for="hideCompress">Compress first <span class="small">fit more in</span></label></div>
+            <div class="check"><input type="checkbox" id="cmpCompress" /><label for="cmpCompress">Compress first</label></div>
           </div>
         </div>
 
-        <button class="primary" id="hideBtn" disabled>Hide &amp; download</button>
-        <div class="out" id="hideOut"></div>
+        <button class="primary" id="cmpBtn" disabled>Hide &amp; download</button>
+        <div class="out" id="cmpOut"></div>
+        <p class="small" style="margin-top:12px">One secret is a simple hide. Two or more each open with their own password (give one away as a decoy). Two or more covers split the data across them, all needed to rebuild. Combine any of it.</p>
       </div>
     </section>
 
@@ -96,10 +62,10 @@
     <section class="panel" id="panel-reveal">
       <div class="card">
         <h2>Reveal a secret</h2>
-        <p class="hint">Choose a stego file and enter the password. We'll figure out the method automatically — including decoy and multi-recipient photos.</p>
-        <label>Stego file</label>
-        <div class="drop" id="revealDrop"><span class="big">🗂️</span>Tap to choose the file</div>
-        <input type="file" id="revealFile" hidden />
+        <p class="hint">Pick the stego photo(s) and a password. Detected automatically.</p>
+        <label>Stego photo(s)</label>
+        <div class="drop" id="revealDrop"><span class="big">🗂️</span>Choose the photo(s)</div>
+        <input type="file" id="revealFile" accept="image/*" multiple hidden />
         <label>Password</label>
         <input type="password" id="revealPass" placeholder="The password used to hide it" autocomplete="off" />
         <button class="primary" id="revealBtn" disabled>Reveal</button>
@@ -107,100 +73,11 @@
       </div>
     </section>
 
-    <!-- SHARE (multi-recipient) -->
-    <section class="panel" id="panel-share">
-      <div class="card">
-        <h2>One photo, many people</h2>
-        <p class="hint">Hide a different message for each person in a single photo. Each opens only their own with their own password.</p>
-        <label>Cover image</label>
-        <div class="drop" id="shareDrop"><span class="big">📷</span>Choose a photo</div>
-        <input type="file" id="shareCover" accept="image/*" hidden />
-        <div id="recipients"></div>
-        <button class="ghost" id="addRecip" style="margin-top:12px">+ Add person</button>
-        <button class="primary" id="shareBtn" disabled>Hide all &amp; download</button>
-        <div class="out" id="shareOut"></div>
-      </div>
-    </section>
-
-    <!-- SPLIT (across covers) -->
-    <section class="panel" id="panel-split">
-      <div class="card">
-        <h2>Split across several photos</h2>
-        <p class="hint">Spread one secret over multiple photos — every photo is needed to rebuild it. Losing any one keeps the secret safe.</p>
-        <div class="seg" id="splitSeg">
-          <button data-mode="hide" class="active">Hide across</button>
-          <button data-mode="reveal">Reveal from</button>
-        </div>
-
-        <div id="splitHide">
-          <label>Cover photos <span class="small">pick 2 or more</span></label>
-          <div class="drop" id="splitHideDrop"><span class="big">📷</span>Choose photos</div>
-          <input type="file" id="splitHideFiles" accept="image/*" multiple hidden />
-          <label>Secret message</label>
-          <textarea id="splitText" placeholder="The message to spread across the photos"></textarea>
-          <label>Password</label>
-          <input type="password" id="splitPass" placeholder="A strong passphrase" autocomplete="new-password" />
-          <label>Method</label>
-          <select id="splitMethod"></select>
-          <button class="primary" id="splitHideBtn" disabled>Split &amp; download each</button>
-          <div class="out" id="splitHideOut"></div>
-        </div>
-
-        <div id="splitReveal" hidden>
-          <label>All the photos</label>
-          <div class="drop" id="splitRevealDrop"><span class="big">🗂️</span>Choose every photo</div>
-          <input type="file" id="splitRevealFiles" accept="image/*" multiple hidden />
-          <label>Password</label>
-          <input type="password" id="splitRevealPass" placeholder="The password used to hide it" autocomplete="off" />
-          <label>Method</label>
-          <select id="splitRevealMethod"></select>
-          <button class="primary" id="splitRevealBtn" disabled>Rebuild secret</button>
-          <div class="out" id="splitRevealOut"></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- KEYS (Shamir secret sharing) -->
-    <section class="panel" id="panel-keys">
-      <div class="card">
-        <h2>Split a secret into key-shares</h2>
-        <p class="hint">Turn a passphrase or note into N shares — any threshold rebuilds it, fewer reveal nothing (Shamir Secret Sharing).</p>
-        <div class="seg" id="keysSeg">
-          <button data-mode="split" class="active">Split</button>
-          <button data-mode="combine">Combine</button>
-        </div>
-
-        <div id="keysSplit">
-          <label>Secret</label>
-          <textarea id="keysSecret" placeholder="The passphrase or note to split"></textarea>
-          <div class="row">
-            <div>
-              <label>Threshold <span class="small">needed to rebuild</span></label>
-              <select id="keysThreshold"></select>
-            </div>
-            <div>
-              <label>Total shares</label>
-              <select id="keysShares"></select>
-            </div>
-          </div>
-          <button class="primary" id="keysSplitBtn" disabled>Split into shares</button>
-          <div class="out" id="keysSplitOut"></div>
-        </div>
-
-        <div id="keysCombine" hidden>
-          <label>Paste shares <span class="small">one per line</span></label>
-          <textarea id="keysCombineText" placeholder="3-1a2b3c…&#10;5-9f8e7d…"></textarea>
-          <button class="primary" id="keysCombineBtn" disabled>Reconstruct secret</button>
-          <div class="out" id="keysCombineOut"></div>
-        </div>
-      </div>
-    </section>
-
     <!-- INSPECT -->
     <section class="panel" id="panel-analyze">
       <div class="card">
         <h2>Inspect a file</h2>
-        <p class="hint">Check any file for signs of hidden data — structure, statistics, and a best guess at the method.</p>
+        <p class="hint">Structure, statistics, and a method guess.</p>
         <label>File to inspect</label>
         <div class="drop" id="analyzeDrop"><span class="big">🔍</span>Choose a file</div>
         <input type="file" id="analyzeFile" hidden />
@@ -213,7 +90,7 @@
     <section class="panel" id="panel-lab">
       <div class="card">
         <h2>Bit-plane viewer</h2>
-        <p class="hint">See a single bit layer of a photo — hidden LSB data shows up as visible noise.</p>
+        <p class="hint">Hidden LSB data shows up as noise.</p>
         <div class="drop" id="planeDrop"><span class="big">📷</span>Choose a photo</div>
         <input type="file" id="planeFile" accept="image/*" hidden />
         <div class="row">
@@ -225,45 +102,72 @@
       </div>
 
       <div class="card">
-        <h2>Compare original vs stego</h2>
-        <p class="hint">Measure how much a photo changed after hiding — quality scores and a change map.</p>
+        <h2>Compare photos</h2>
+        <p class="hint">Quality scores and a change map.</p>
         <div class="row">
-          <div>
-            <label>Original photo</label>
-            <div class="drop mini" id="cmpCoverDrop"><span class="big">📷</span>Original</div>
-            <input type="file" id="cmpCover" accept="image/*" hidden />
-          </div>
-          <div>
-            <label>Stego photo</label>
-            <div class="drop mini" id="cmpStegoDrop"><span class="big">🖼️</span>Stego</div>
-            <input type="file" id="cmpStego" accept="image/*" hidden />
-          </div>
+          <div><label>Original</label><div class="drop mini" id="cmpCoverDrop"><span class="big">📷</span>Original</div><input type="file" id="cmpCover" accept="image/*" hidden /></div>
+          <div><label>Stego</label><div class="drop mini" id="cmpStegoDrop"><span class="big">🖼️</span>Stego</div><input type="file" id="cmpStego" accept="image/*" hidden /></div>
         </div>
-        <button class="primary" id="cmpBtn" disabled>Compare</button>
-        <div class="out" id="cmpOut"></div>
+        <button class="primary" id="cmpCompareBtn" disabled>Compare</button>
+        <div class="out" id="cmpCompareOut"></div>
       </div>
 
       <div class="card">
-        <h2>Will it be detectable?</h2>
-        <p class="hint">Estimate how much hiding a payload of a given size would raise a detector's suspicion.</p>
+        <h2>Detectability</h2>
+        <p class="hint">How much a payload raises suspicion.</p>
         <div class="drop mini" id="detDrop"><span class="big">📷</span>Choose a cover</div>
         <input type="file" id="detCover" accept="image/*" hidden />
         <div class="row">
           <div><label>Method</label><select id="detMethod"></select></div>
-          <div><label>Payload size <span class="small">bytes</span></label><input type="number" id="detPayload" value="1024" min="1" /></div>
+          <div><label>Payload <span class="small">bytes</span></label><input type="number" id="detPayload" value="1024" min="1" /></div>
         </div>
         <button class="primary" id="detBtn" disabled>Estimate</button>
         <div class="out" id="detOut"></div>
       </div>
 
       <div class="card">
-        <h2>Engine self-test &amp; benchmark</h2>
-        <p class="hint">Round-trip every method to confirm the engine is healthy, and time the password hashing on this device.</p>
+        <h2>Self-test &amp; benchmark</h2>
+        <p class="hint">Check the engine and time hashing.</p>
         <div class="row">
           <button class="ghost" id="doctorBtn" style="flex:1">🩺 Run self-test</button>
-          <button class="ghost" id="benchBtn" style="flex:1">⏱️ Benchmark hashing</button>
+          <button class="ghost" id="benchBtn" style="flex:1">⏱️ Benchmark</button>
         </div>
         <div class="out" id="labDiagOut"></div>
+      </div>
+    </section>
+
+    <!-- KEYS (Shamir secret sharing) -->
+    <section class="panel" id="panel-keys">
+      <div class="card">
+        <h2>Key-shares</h2>
+        <p class="hint">Any threshold of shares rebuilds a secret.</p>
+        <div class="seg" id="keysSeg">
+          <button data-mode="split" class="active">Split</button>
+          <button data-mode="combine">Combine</button>
+        </div>
+
+        <div id="keysSplit">
+          <label>Secret</label>
+          <div class="seg" id="keysType"><button data-t="text" class="active">Text</button><button data-t="file">File</button></div>
+          <textarea id="keysSecret" placeholder="Passphrase or note to split"></textarea>
+          <div id="keysFileWrap" hidden>
+            <div class="drop mini" id="keysFileDrop"><span class="big">📎</span>Choose a file</div>
+            <input type="file" id="keysFile" hidden />
+          </div>
+          <div class="row">
+            <div><label>Threshold <span class="small">to rebuild</span></label><select id="keysThreshold"></select></div>
+            <div><label>Total shares</label><select id="keysShares"></select></div>
+          </div>
+          <button class="primary" id="keysSplitBtn" disabled>Split into shares</button>
+          <div class="out" id="keysSplitOut"></div>
+        </div>
+
+        <div id="keysCombine" hidden>
+          <label>Paste shares <span class="small">one per line</span></label>
+          <textarea id="keysCombineText" placeholder="3-1a2b3c...&#10;5-9f8e7d..."></textarea>
+          <button class="primary" id="keysCombineBtn" disabled>Reconstruct secret</button>
+          <div class="out" id="keysCombineOut"></div>
+        </div>
       </div>
     </section>
 
@@ -271,7 +175,7 @@
     <section class="panel" id="panel-clean">
       <div class="card">
         <h2>Remove hidden data</h2>
-        <p class="hint">Scrub a file so any hidden payload is destroyed — the picture still looks the same.</p>
+        <p class="hint">Destroys any hidden payload. Photo looks the same.</p>
         <label>File to clean</label>
         <div class="drop" id="cleanDrop"><span class="big">🧼</span>Choose a file</div>
         <input type="file" id="cleanFile" hidden />
@@ -281,7 +185,7 @@
     </section>
   </main>
 
-  <footer>Runs entirely on your device — no uploads, no servers. <span id="engineInfo"></span></footer>
+  <footer>Runs on your device. No uploads. <span id="engineInfo"></span></footer>
 
   <script type="module" src="app.js"></script>
 </body>

@@ -539,6 +539,93 @@ pub fn benchmark_kdf() -> Result<JsValue, JsValue> {
     })
 }
 
+// --- composite: mix hide / decoy / multi-recipient / split freely ----------
+
+#[derive(serde::Deserialize)]
+struct FileIn {
+    name: String,
+    bytes: Vec<u8>,
+}
+
+/// One composite entry from JS: a passphrase plus exactly one of `text` or
+/// `files` (one or many). `{ passphrase, text }` or `{ passphrase, files: [{name,bytes}] }`.
+#[derive(serde::Deserialize)]
+struct EntryIn {
+    passphrase: String,
+    text: Option<String>,
+    files: Option<Vec<FileIn>>,
+}
+
+fn entry_to_recipient(e: EntryIn) -> Result<Recipient, JsValue> {
+    let secret = if let Some(text) = e.text {
+        Secret::Text { text }
+    } else if let Some(mut files) = e.files.filter(|f| !f.is_empty()) {
+        if files.len() == 1 {
+            let f = files.remove(0);
+            Secret::File { name: f.name, bytes: f.bytes }
+        } else {
+            Secret::Files {
+                files: files
+                    .into_iter()
+                    .map(|f| FileRecord { name: f.name, bytes: f.bytes })
+                    .collect(),
+            }
+        }
+    } else {
+        return Err(JsValue::from_str("each entry needs text or files"));
+    };
+    Ok(Recipient { secret, passphrase: e.passphrase })
+}
+
+/// Hide N entries across M image covers at once (any mix of hide / decoy /
+/// multi-recipient / split). `covers` is a JS array of byte arrays; `entries` a
+/// JS array of `{ passphrase, text | files }`. Returns one stego per cover.
+#[wasm_bindgen(js_name = embedComposite)]
+pub fn embed_composite(
+    covers: JsValue,
+    entries: JsValue,
+    robustness: u8,
+    compress: bool,
+) -> Result<JsValue, JsValue> {
+    let chunks: Vec<stegno_core::ByteChunk> = from_js_bufs(covers)?
+        .into_iter()
+        .map(|bytes| stegno_core::ByteChunk { bytes })
+        .collect();
+    let raw: Vec<EntryIn> = serde_wasm_bindgen::from_value(entries)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let recipients: Vec<Recipient> = raw
+        .into_iter()
+        .map(entry_to_recipient)
+        .collect::<Result<_, _>>()?;
+    let out = stegno_core::embed_composite(chunks, recipients, robustness, compress).map_err(err)?;
+    let bytes: Vec<Vec<u8>> = out.into_iter().map(|c| c.bytes).collect();
+    to_js(&bytes)
+}
+
+/// Reveal the entry a passphrase unlocks from a set of composite covers.
+/// `stegos` is a JS array of byte arrays (all covers made together, in order).
+#[wasm_bindgen(js_name = extractComposite)]
+pub fn extract_composite(stegos: JsValue, passphrase: String) -> Result<JsValue, JsValue> {
+    let chunks: Vec<stegno_core::ByteChunk> = from_js_bufs(stegos)?
+        .into_iter()
+        .map(|bytes| stegno_core::ByteChunk { bytes })
+        .collect();
+    let r = stegno_core::extract_composite(chunks, passphrase).map_err(err)?;
+    to_js(&RevealedJs::from(r))
+}
+
+/// Usable bytes per entry when `entryCount` entries share the given covers.
+#[wasm_bindgen(js_name = compositeCapacity)]
+pub fn composite_capacity(covers: JsValue, entry_count: u32) -> Result<f64, JsValue> {
+    let chunks: Vec<stegno_core::ByteChunk> = from_js_bufs(covers)?
+        .into_iter()
+        .map(|bytes| stegno_core::ByteChunk { bytes })
+        .collect();
+    stegno_core::composite_capacity(chunks, entry_count)
+        .map(|c| c as f64)
+        .map_err(err)
+}
+
 // A convenient re-export so the FileRecord type participates in the build even
 // when no method returns Files (keeps the API stable).
 #[allow(dead_code)]
