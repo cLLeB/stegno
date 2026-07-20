@@ -53,8 +53,11 @@ internal val Indigo = Color(0xFF6366F1)
 internal val Violet = Color(0xFF8B5CF6)
 private val StegnoLight = lightColorScheme(
     primary = Indigo, secondary = Violet,
-    background = Color(0xFFE9E7F3), surface = Color(0xFFF7F6FC),
-    surfaceVariant = Color(0xFFEFEEF7), outline = Color(0xFFBCB9D6),
+    // Softened surfaces (not glaring white) with a distinctly darker outline so
+    // borders on fields, cards and dropdowns stay clearly visible.
+    background = Color(0xFFE7E4F1), surface = Color(0xFFF4F2FB),
+    surfaceVariant = Color(0xFFEAE8F5), outline = Color(0xFFA49FC6),
+    outlineVariant = Color(0xFFC2BEDB),
     onSurface = Color(0xFF1C1B2E), onBackground = Color(0xFF1C1B2E),
 )
 private val StegnoDark = darkColorScheme(
