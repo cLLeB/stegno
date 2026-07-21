@@ -577,6 +577,24 @@ fn entry_to_recipient(e: EntryIn) -> Result<Recipient, JsValue> {
     Ok(Recipient { secret, passphrase: e.passphrase })
 }
 
+/// Single-cover hide with a chosen method and full options, but a secret that
+/// can be text OR file(s). `entry` is `{ passphrase, text | files }`. Preserves
+/// method choice / planner / strength for the simple case while allowing files.
+#[wasm_bindgen(js_name = embedAdvancedEntry)]
+pub fn embed_advanced_entry(
+    method_id: String,
+    cover: Vec<u8>,
+    entry: JsValue,
+    robustness: u8,
+    compress: bool,
+) -> Result<Vec<u8>, JsValue> {
+    let e: EntryIn = serde_wasm_bindgen::from_value(entry)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let r = entry_to_recipient(e)?;
+    stegno_core::embed_advanced(method_id, cover, r.secret, r.passphrase, robustness, compress)
+        .map_err(err)
+}
+
 /// Hide N entries across M image covers at once (any mix of hide / decoy /
 /// multi-recipient / split). `covers` is a JS array of byte arrays; `entries` a
 /// JS array of `{ passphrase, text | files }`. Returns one stego per cover.

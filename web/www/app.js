@@ -87,14 +87,20 @@ function wireDropMulti(dropId, inputId, onFiles) {
 }
 
 /* ---------------- Boot ---------------- */
-let IMAGE_METHODS = [];
+let IMAGE_METHODS = [], ALL_METHODS = [];
 async function boot() {
   await init();
   const methods = stg.listMethods();
+  ALL_METHODS = methods;
   $("engineInfo").textContent = `· ${methods.length} methods`;
   IMAGE_METHODS = methods.filter((m) => m.media === "Image");
-  const det = $("detMethod");
-  IMAGE_METHODS.forEach((m) => { const o = document.createElement("option"); o.value = m.id; o.textContent = m.displayName; det.appendChild(o); });
+  // Detectability is an image analysis, so it keeps image methods only.
+  IMAGE_METHODS.forEach((m) => { const o = document.createElement("option"); o.value = m.id; o.textContent = m.displayName; $("detMethod").appendChild(o); });
+  // The composer's single-hide can target ANY carrier, so list every method,
+  // labelled by the cover type it works on (photo / text / audio / file).
+  const cm = $("cmpMethod");
+  methods.forEach((m) => { const o = document.createElement("option"); o.value = m.id; o.textContent = `${m.displayName} · ${m.media.toLowerCase()}`; cm.appendChild(o); });
+  const seeded = methods.find((m) => m.id === "lsb_seeded"); if (seeded) cm.value = seeded.id;
   setupCompose(); setupReveal(); setupAnalyze(); setupLab(); setupKeys(); setupClean();
 }
 
@@ -107,7 +113,23 @@ function setupCompose() {
   $("cmpAddEntry").addEventListener("click", () => {
     if (entries.length < 8) { entries.push({ type: "text", text: "", files: [], pass: "" }); renderEntries(); refreshCompose(); }
   });
+  $("cmpMethod").addEventListener("change", refreshCompose);
+  $("cmpPlanBtn").addEventListener("click", doPlan);
   $("cmpBtn").addEventListener("click", doCompose);
+}
+function isSingle() { return entries.length === 1 && composeCovers.length === 1; }
+function doPlan() {
+  if (!composeCovers.length) return;
+  const out = $("cmpPlanOut");
+  try {
+    const payloadLen = entries[0].type === "text" ? new TextEncoder().encode(entries[0].text).length
+      : entries[0].files.reduce((n, f) => n + f.bytes.length, 0);
+    const recs = stg.planEmbedding(composeCovers[0], payloadLen);
+    const byId = Object.fromEntries(ALL_METHODS.map((m) => [m.id, m.displayName]));
+    out.innerHTML = recs.slice(0, 4).map((r) =>
+      `<button class="rec" data-id="${esc(r.methodId)}"><b>${r.fits ? "✅" : "⚠️"} ${esc(byId[r.methodId] || r.methodId)}</b><span class="tag ${r.stealthTier >= 2 ? "ok" : r.stealthTier === 1 ? "warn" : "bad"}">stealth ${r.stealthTier}/3</span><span class="small">${esc(r.note)}</span></button>`).join("");
+    out.querySelectorAll("button.rec").forEach((b) => b.addEventListener("click", () => { $("cmpMethod").value = b.dataset.id; out.innerHTML = ""; refreshCompose(); }));
+  } catch (e) { fail(out, e); }
 }
 function renderEntries() {
   const wrap = $("cmpEntries");
@@ -122,15 +144,29 @@ function renderEntries() {
         ? `<textarea class="e-text" placeholder="Secret message">${esc(e.text)}</textarea>`
         : `<div class="drop mini e-filedrop">${e.files.length ? `✅ ${e.files.length} file(s)` : "📎 Choose file(s)"}</div>`}
       <input type="password" class="e-pass" placeholder="Password for this secret" value="${esc(e.pass)}" style="margin-top:8px" />
+      <div class="meter"><span class="e-str" style="width:0"></span></div>
+      <div class="small e-strtext">Strength shows as you type.</div>
     </div>`).join("");
   wrap.querySelectorAll(".recip").forEach((row) => {
     const i = +row.dataset.i;
     row.querySelectorAll(".e-type button[data-t]").forEach((b) => b.addEventListener("click", () => { entries[i].type = b.dataset.t; renderEntries(); refreshCompose(); }));
     const del = row.querySelector(".e-del"); if (del) del.addEventListener("click", () => { entries.splice(i, 1); renderEntries(); refreshCompose(); });
     const ta = row.querySelector(".e-text"); if (ta) ta.addEventListener("input", () => { entries[i].text = ta.value; refreshCompose(); });
-    row.querySelector(".e-pass").addEventListener("input", (ev) => { entries[i].pass = ev.target.value; refreshCompose(); });
+    const pass = row.querySelector(".e-pass");
+    pass.addEventListener("input", () => { entries[i].pass = pass.value; updateStrength(row, pass.value); refreshCompose(); });
+    updateStrength(row, e.pass);
     const fd = row.querySelector(".e-filedrop"); if (fd) fd.addEventListener("click", () => pickEntryFiles(i));
   });
+}
+function updateStrength(row, val) {
+  const bar = row.querySelector(".e-str"), txt = row.querySelector(".e-strtext");
+  if (!val) { bar.style.width = "0"; txt.textContent = "Strength shows as you type."; return; }
+  const s = stg.passphraseStrength(val);
+  const colors = ["var(--bad)", "var(--bad)", "var(--warn)", "var(--ok)", "var(--ok)"];
+  const labels = ["Very weak", "Weak", "Fair", "Strong", "Excellent"];
+  bar.style.width = ((s.score + 1) / 5 * 100) + "%";
+  bar.style.background = colors[s.score];
+  txt.innerHTML = `<b>${labels[s.score]}</b> · ~${s.entropyBits.toFixed(0)} bits · cracks in ${esc(s.crackTimeDisplay)}${s.warning ? ` · <span class="err">${esc(s.warning)}</span>` : ""}`;
 }
 function pickEntryFiles(i) {
   const inp = document.createElement("input");
@@ -141,11 +177,19 @@ function pickEntryFiles(i) {
   });
   inp.click();
 }
+function entryToJs(e) {
+  return e.type === "text"
+    ? { passphrase: e.pass, text: e.text }
+    : { passphrase: e.pass, files: e.files.map((f) => ({ name: f.name, bytes: f.bytes })) };
+}
 function refreshCompose() {
+  const single = isSingle();
+  $("cmpSingle").hidden = !single;
+  $("cmpMixNote").hidden = single;
   if (composeCovers.length) {
     try {
-      const cap = stg.compositeCapacity(composeCovers, Math.max(entries.length, 1));
-      $("cmpCap").textContent = `Room for about ${cap.toLocaleString()} bytes per secret.`;
+      const cap = single ? stg.capacity($("cmpMethod").value, composeCovers[0]) : stg.compositeCapacity(composeCovers, Math.max(entries.length, 1));
+      $("cmpCap").textContent = `Room for about ${cap.toLocaleString()} bytes${single ? "" : " per secret"}.`;
     } catch { $("cmpCap").textContent = ""; }
   } else $("cmpCap").textContent = "";
   const ready = composeCovers.length >= 1 && entries.length >= 1 &&
@@ -154,16 +198,20 @@ function refreshCompose() {
 }
 function doCompose() {
   const out = $("cmpOut"); spin(out, "Hiding…");
+  const robust = parseInt($("cmpRobust").value, 10), compress = $("cmpCompress").checked;
   defer(() => {
     try {
-      const js = entries.map((e) => e.type === "text"
-        ? { passphrase: e.pass, text: e.text }
-        : { passphrase: e.pass, files: e.files.map((f) => ({ name: f.name, bytes: f.bytes })) });
-      const parts = stg.embedComposite(composeCovers, js, parseInt($("cmpRobust").value, 10), $("cmpCompress").checked);
-      parts.forEach((p, i) => download(p, parts.length > 1 ? `part${i + 1}.png` : "stego.png", "image/png"));
-      out.innerHTML = banner(true, parts.length > 1
-        ? `✅ Hid ${entries.length} secret(s) across ${parts.length} photos (all needed to rebuild).`
-        : `✅ Hid ${entries.length} secret(s).`);
+      if (isSingle()) {
+        const stego = stg.embedAdvancedEntry($("cmpMethod").value, composeCovers[0], entryToJs(entries[0]), robust, compress);
+        download(stego, "stego.png", "image/png");
+        out.innerHTML = banner(true, "✅ Hid your secret.");
+      } else {
+        const parts = stg.embedComposite(composeCovers, entries.map(entryToJs), robust, compress);
+        parts.forEach((p, i) => download(p, parts.length > 1 ? `part${i + 1}.png` : "stego.png", "image/png"));
+        out.innerHTML = banner(true, parts.length > 1
+          ? `✅ Hid ${entries.length} secret(s) across ${parts.length} photos (all needed to rebuild).`
+          : `✅ Hid ${entries.length} secret(s) in one photo.`);
+      }
     } catch (e) { fail(out, e); }
   });
 }

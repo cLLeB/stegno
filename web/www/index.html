@@ -32,13 +32,21 @@
         <h2>Hide</h2>
         <p class="hint">Add cover photos and one or more secrets. Mix freely.</p>
 
-        <label>Cover photos</label>
-        <div class="drop" id="cmpCoversDrop"><span class="big">📷</span>Choose one or more photos</div>
-        <input type="file" id="cmpCoversInput" accept="image/*" multiple hidden />
+        <label>Cover file(s)</label>
+        <div class="drop" id="cmpCoversDrop"><span class="big">📎</span>Choose one or more covers (photo, text, audio, any file)</div>
+        <input type="file" id="cmpCoversInput" multiple hidden />
 
         <label>Secrets</label>
         <div id="cmpEntries"></div>
         <button class="ghost" id="cmpAddEntry" style="margin-top:10px">+ Add another secret</button>
+
+        <div id="cmpSingle">
+          <label>Method</label>
+          <select id="cmpMethod"></select>
+          <button class="ghost" id="cmpPlanBtn" style="margin-top:10px;width:100%">💡 Suggest a method</button>
+          <div id="cmpPlanOut"></div>
+        </div>
+        <div class="small" id="cmpMixNote" hidden>Two or more secrets or covers use the layered mix scheme.</div>
         <div class="small" id="cmpCap"></div>
 
         <div class="row" style="margin-top:14px">
