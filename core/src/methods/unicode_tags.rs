@@ -53,7 +53,10 @@ impl Method for UnicodeTags {
         Media::Text
     }
 
-    fn capacity(&self, _cover: &[u8]) -> Result<Capacity, StegnoError> {
+    fn capacity(&self, cover: &[u8]) -> Result<Capacity, StegnoError> {
+        // `embed` needs UTF-8 text; reporting a capacity for a binary cover
+        // would promise an embed that is about to fail.
+        std::str::from_utf8(cover).map_err(|_| StegnoError::UnsupportedFormat)?;
         Ok(Capacity {
             usable_bytes: SOFT_CAPACITY.saturating_sub(payload::overhead() as u64),
         })

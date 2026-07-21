@@ -1,6 +1,6 @@
 // Offline-first service worker: cache the shell + wasm so the app works with no
 // network at all (matching the "nothing leaves your device" promise).
-const CACHE = "stegno-v6";
+const CACHE = "stegno-v7";
 const ASSETS = [
   "./",
   "./index.html",

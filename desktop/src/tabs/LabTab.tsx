@@ -162,7 +162,9 @@ function DiagnosticsCard() {
         <table><tbody>{tests.map((t, i) => <tr key={i}><td>{t.ok ? "✅" : "❌"} {t.methodId}</td><td className="small">{t.detail}</td></tr>)}</tbody></table>
       </div>}
       {bench && <div className="out">
-        <div className="result-banner ok">{bench.verdict}</div>
+        <div className={`result-banner ${bench.verdict === "weak" ? "bad" : "ok"}`}>{bench.verdict}</div>
+        {/* The verdict alone says nothing about what the number means. */}
+        <div className="small" style={{ margin: "6px 0 10px" }}>{bench.explanation}</div>
         <StatRow k="Time" v={`${bench.millis.toFixed(0)} ms`} />
         <StatRow k="Memory" v={`${(bench.memoryKib / 1024).toFixed(0)} MiB`} />
         <StatRow k="Iterations" v={String(bench.iterations)} />

@@ -81,13 +81,13 @@ private val StegnoDark = darkColorScheme(
 private data class Sub(val id: String, val label: String)
 private data class Grp(val label: String, val subs: List<Sub>)
 
+// Hide is one unified composer; everything analytical lives behind one group.
 private val GROUPS = listOf(
-    Grp("🔒 Hide", listOf(
-        Sub("hide", "🖼️ One photo"), Sub("share", "👥 Recipients"),
-        Sub("split", "🧩 Split photos"), Sub("keys", "🔐 Key-shares"))),
+    Grp("🔒 Hide", listOf(Sub("hide", "🔒 Hide"))),
     Grp("🔑 Reveal", listOf(Sub("reveal", "🔑 Reveal"))),
     Grp("🔬 Analyze", listOf(
-        Sub("inspect", "🔍 Inspect"), Sub("lab", "🧪 Lab"), Sub("clean", "🧼 Clean"))),
+        Sub("inspect", "🔍 Inspect"), Sub("lab", "🧪 Lab"),
+        Sub("keys", "🔐 Key-shares"), Sub("clean", "🧼 Clean"))),
 )
 
 @Composable
@@ -154,9 +154,7 @@ fun StegnoApp(
                 when (p) {
                     "hide" -> HideTab(methods, readUri, writeUri)
                     "reveal" -> RevealTab(readUri, writeUri)
-                    "share" -> ShareTab(readUri, writeUri)
-                    "split" -> SplitTab(methods, readUri, writeUri)
-                    "keys" -> KeysTab()
+                    "keys" -> KeysTab(readUri, writeUri)
                     "inspect" -> InspectTab(readUri)
                     "lab" -> LabTab(methods, readUri, writeUri)
                     else -> CleanTab(readUri, writeUri)

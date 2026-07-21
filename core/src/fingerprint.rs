@@ -47,6 +47,56 @@ pub fn fingerprint(data: Vec<u8>) -> Vec<MethodGuess> {
                 0.9,
                 "data appended after the format's end marker",
             ),
+            // Format-native carriers identify themselves precisely, so name the
+            // method rather than reporting an anonymous frame.
+            "stegno_zip_comment" => push(
+                &mut guesses,
+                "zip_comment",
+                0.95,
+                "payload sits in the archive's end-of-central-directory comment",
+            ),
+            "stegno_pdf_object" => push(
+                &mut guesses,
+                "pdf_object",
+                0.95,
+                "an appended PDF revision holds a marked, unreferenced stream",
+            ),
+            "stegno_stl_attrib" => push(
+                &mut guesses,
+                "stl_attrib",
+                0.95,
+                "STL header marker; payload rides the per-triangle attribute words",
+            ),
+            "stegno_mp4_free" => push(
+                &mut guesses,
+                "mp4_free",
+                0.95,
+                "a top-level ISO-BMFF `free` box carries the payload",
+            ),
+            "stegno_mp3_id3" => push(
+                &mut guesses,
+                "mp3_id3",
+                0.95,
+                "an ID3 PRIV frame owned by `stegno` carries the payload",
+            ),
+            "stegno_append_eof" => push(
+                &mut guesses,
+                "append_eof",
+                0.95,
+                "Stegno's append-after-EOF trailer is present",
+            ),
+            "stegno_carrier_region" => push(
+                &mut guesses,
+                "composite / decoy (appended carrier region)",
+                0.95,
+                "a Stegno appended-region trailer declares payload slots",
+            ),
+            "stegno_frame" => push(
+                &mut guesses,
+                "stegno (method unidentified)",
+                0.8,
+                "a Stegno payload frame header is present in the clear",
+            ),
             "polyglot_zip" => push(
                 &mut guesses,
                 "polyglot",
@@ -59,12 +109,12 @@ pub fn fingerprint(data: Vec<u8>) -> Vec<MethodGuess> {
                 0.85,
                 "private/non-standard PNG chunk carries the payload",
             ),
-            "metadata_chunk" => push(
-                &mut guesses,
-                "png_text",
-                0.5,
-                "PNG text metadata chunk present",
-            ),
+            // Ordinary PNGs carry tEXt/iTXt chunks all the time — the authoring
+            // tool's name, a copyright line, colour-profile notes. Treating that
+            // as a 50% hit meant every stock photo was accused, once per chunk.
+            // Only the engine's own private chunk (handled above) is evidence;
+            // standard metadata is context, not a finding.
+            "metadata_chunk" => {}
             "zero_width" => push(
                 &mut guesses,
                 "zero_width",
@@ -90,17 +140,32 @@ pub fn fingerprint(data: Vec<u8>) -> Vec<MethodGuess> {
     // 2) Pixel statistics point to the spatial LSB family (image formats only).
     if matches!(s.format.as_str(), "png" | "jpeg" | "gif") {
         if let Ok(d) = crate::detect_lsb(data) {
-            // A blend of the strongest LSB indicators.
-            let lsb_score = (d.sample_pair_rate * 0.6
-                + (1.0 - d.rs_regularity_gap.clamp(0.0, 1.0)) * 0.2
-                + d.chi_square_p * 0.2)
-                .clamp(0.0, 1.0);
-            if lsb_score > 0.15 {
+            // Use the engine's combined confidence rather than a second, private
+            // blend. The old one leaned 60% on `sample_pair_rate`, which reads
+            // ≈0.8 for images with nothing hidden — so every clean photo was
+            // announced as "67% lsb-family". Accusing innocent files is not a
+            // lesser failure than missing guilty ones; it teaches you to ignore
+            // the tool.
+            let lsb_score = d.ml_confidence;
+            if lsb_score > 0.35 {
                 push(
                     &mut guesses,
                     "lsb-family (lsb_image / lsb_seeded / lsb_matching / edge_adaptive / pvd)",
                     lsb_score,
-                    "elevated LSB-plane statistics (sample-pair / chi-square)",
+                    "LSB-plane statistics (chi-square + RS regularity) depart from a clean image",
+                );
+            } else {
+                // Measured across every pixel method, chi-square and RS only
+                // separate once roughly a quarter of the LSB plane is in use. A
+                // small secret in a large photo is genuinely invisible to them,
+                // so silence here means "these tests found nothing", not "there
+                // is nothing". Saying otherwise would be the reassuring lie.
+                push(
+                    &mut guesses,
+                    "no statistical trace (a small payload would not show)",
+                    0.0,
+                    "pixel statistics look normal; these tests only detect LSB embedding \
+                     once a large fraction of the plane is used",
                 );
             }
             if s.format == "jpeg" {

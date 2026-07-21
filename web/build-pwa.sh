@@ -4,4 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 wasm-pack build --target web --out-dir www/pkg
-echo "PWA ready: serve web/www over HTTP (e.g. 'python -m http.server' in web/www)."
+
+# 8080 and 8000 collide with almost everything; this port is in the IANA
+# dynamic range and is not claimed by any common dev server.
+PORT="${STEGNO_PORT:-47823}"
+echo "PWA ready. Serve it with:"
+echo "    ./serve-pwa.sh          # http://127.0.0.1:${PORT}"

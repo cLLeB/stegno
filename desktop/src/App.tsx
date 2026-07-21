@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 import { listMethods, type MethodInfo } from "./api";
 import { HideTab } from "./tabs/HideTab";
 import { RevealTab } from "./tabs/RevealTab";
-import { ShareTab } from "./tabs/ShareTab";
-import { SplitTab } from "./tabs/SplitTab";
 import { KeysTab } from "./tabs/KeysTab";
 import { InspectTab } from "./tabs/InspectTab";
 import { LabTab } from "./tabs/LabTab";
@@ -26,7 +24,7 @@ function useTheme(): () => void {
   };
 }
 
-type Panel = "hide" | "reveal" | "share" | "split" | "keys" | "inspect" | "lab" | "clean";
+type Panel = "hide" | "reveal" | "inspect" | "lab" | "keys" | "clean";
 type Group = "hide" | "reveal" | "analyze";
 
 interface GroupDef {
@@ -34,13 +32,13 @@ interface GroupDef {
   label: string;
   subs: { id: Panel; label: string }[];
 }
+// Hide is one composer — decoys, recipients and splits are all the same screen.
 const GROUPS: GroupDef[] = [
-  { id: "hide", label: "🔒 Hide", subs: [
-    { id: "hide", label: "🖼️ One photo" }, { id: "share", label: "👥 Recipients" },
-    { id: "split", label: "🧩 Split photos" }, { id: "keys", label: "🔐 Key-shares" }] },
+  { id: "hide", label: "🔒 Hide", subs: [{ id: "hide", label: "🔒 Hide" }] },
   { id: "reveal", label: "🔑 Reveal", subs: [{ id: "reveal", label: "🔑 Reveal" }] },
   { id: "analyze", label: "🔬 Analyze", subs: [
-    { id: "inspect", label: "🔍 Inspect" }, { id: "lab", label: "🧪 Lab" }, { id: "clean", label: "🧼 Clean" }] },
+    { id: "inspect", label: "🔍 Inspect" }, { id: "lab", label: "🧪 Lab" },
+    { id: "keys", label: "🔐 Key-shares" }, { id: "clean", label: "🧼 Clean" }] },
 ];
 
 export default function App() {
@@ -89,8 +87,6 @@ export default function App() {
       <main>
         {panel === "hide" && <HideTab methods={methods} />}
         {panel === "reveal" && <RevealTab />}
-        {panel === "share" && <ShareTab />}
-        {panel === "split" && <SplitTab methods={methods} />}
         {panel === "keys" && <KeysTab />}
         {panel === "inspect" && <InspectTab />}
         {panel === "lab" && <LabTab methods={methods} />}

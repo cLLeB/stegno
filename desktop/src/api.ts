@@ -14,6 +14,67 @@ export type SecretInput =
   | { kind: "file"; name: string; bytes: number[] }
   | { kind: "files"; files: { name: string; bytes: number[] }[] };
 
+/** Carrier families the engine recognises; anything else is carried as bytes. */
+export type CarrierKind = "image" | "audio" | "text" | "video" | "bytes";
+
+export interface CoverInfo {
+  kind: CarrierKind;
+  /** The container the bytes actually are — name output files from this. */
+  format: string;
+  extension: string;
+  mime: string;
+  /** True when hiding keeps the original container (a PDF stays a PDF). */
+  preservesContainer: boolean;
+  slots: number;
+  capacityBytes: number;
+}
+
+/** What a cover actually is, so the UI can name the output for the right container. */
+export function coverInfo(cover: number[]): Promise<CoverInfo> {
+  return invoke<CoverInfo>("cover_info", { cover });
+}
+
+/** One composite entry: a secret plus the passphrase that opens only it. */
+export interface CompositeEntry {
+  secret: SecretInput;
+  passphrase: string;
+}
+
+/**
+ * The one primitive behind every mix: N independent secrets across M covers of
+ * any medium. 1x1 is a plain hide, 2x1 a decoy, Nx1 multi-recipient, 1xM a
+ * split, NxM all of it at once. Returns one stego file per cover, in order.
+ */
+export function embedComposite(
+  covers: number[][],
+  entries: CompositeEntry[],
+  robustness: 0 | 1 | 2 | 3,
+  compress: boolean
+): Promise<number[][]> {
+  return invoke<number[][]>("embed_composite", {
+    covers,
+    entries,
+    robustness,
+    compress,
+  });
+}
+
+/** Recover whichever entry `passphrase` opens from a full set of stego parts. */
+export function extractComposite(
+  stegos: number[][],
+  passphrase: string
+): Promise<Revealed> {
+  return invoke<Revealed>("extract_composite", { stegos, passphrase });
+}
+
+/** Usable bytes for one entry when `entryCount` entries share these covers. */
+export function compositeCapacity(
+  covers: number[][],
+  entryCount: number
+): Promise<number> {
+  return invoke<number>("composite_capacity", { covers, entryCount });
+}
+
 export async function listMethods(): Promise<MethodInfo[]> {
   const raw = await invoke<[string, string, string][]>("list_methods");
   return raw.map(([id, displayName, media]) => ({ id, displayName, media }));
@@ -41,6 +102,8 @@ export interface KdfBenchmark {
   memoryKib: number;
   iterations: number;
   verdict: string;
+  /** Plain-language reading — a bare "weak" isn't actionable on its own. */
+  explanation: string;
 }
 
 /** Measure Argon2id key-derivation cost on this device (weak/ok/slow). */
@@ -400,6 +463,27 @@ export function sssCombine(shares: SecretShare[]): Promise<number[]> {
 }
 
 /**
+ * Split a *typed* secret, so a shared file recombines under its own filename
+ * instead of anonymous bytes.
+ */
+export function sssSplitSecret(
+  secret: SecretInput,
+  threshold: number,
+  shares: number
+): Promise<SecretShare[]> {
+  return invoke<SecretShare[]>("sss_split_secret", {
+    secret,
+    threshold,
+    shares,
+  });
+}
+
+/** Rebuild a typed secret (message or named file) from Shamir shares. */
+export function sssCombineSecret(shares: SecretShare[]): Promise<Revealed> {
+  return invoke<Revealed>("sss_combine_secret", { shares });
+}
+
+/**
  * Render bit-plane `plane` (0=LSB..7) of colour `channel` (0=R,1=G,2=B) as a
  * black/white PNG - LSB planes of a stego image show the payload as noise.
  */
@@ -427,4 +511,47 @@ export function readFile(path: string): Promise<number[]> {
 
 export function writeFile(path: string, bytes: number[]): Promise<void> {
   return invoke<void>("write_file", { path, bytes });
+}
+
+/* ---------- optional ffmpeg bridge (desktop only) ---------- */
+
+export interface FfmpegStatus {
+  available: boolean;
+  /** ffmpeg's version line, or why it can't be used. */
+  detail: string;
+}
+
+/** Whether a system ffmpeg is present, enabling frame-level video embedding. */
+export function ffmpegStatus(): Promise<FfmpegStatus> {
+  return invoke<FfmpegStatus>("ffmpeg_status");
+}
+
+/**
+ * Decode a compressed video to lossless YUV4MPEG2 the engine can carry.
+ * The result is raw video — roughly `width × height × 1.5` bytes per frame —
+ * so keep clips short.
+ */
+export function videoToY4m(path: string): Promise<number[]> {
+  return invoke<number[]>("video_to_y4m", { path });
+}
+
+/**
+ * Re-encode carried frames to lossless FFV1 in Matroska, restoring the original
+ * file's audio. Lossless is mandatory: any lossy codec discards the payload.
+ */
+export function y4mToVideo(
+  y4m: number[],
+  originalPath: string,
+  outPath: string
+): Promise<void> {
+  return invoke<void>("y4m_to_video", { y4m, originalPath, outPath });
+}
+
+/** Container extensions worth offering the frame-level path for. */
+const VIDEO_EXTS = ["mp4", "mkv", "webm", "mov", "avi", "m4v", "wmv", "flv"];
+
+/** Whether a filename looks like a compressed video ffmpeg could transcode. */
+export function looksLikeVideo(name: string): boolean {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return VIDEO_EXTS.includes(ext);
 }

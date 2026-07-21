@@ -1,4 +1,5 @@
 mod commands;
+mod video_tools;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,9 +36,18 @@ pub fn run() {
             commands::change_rate,
             commands::sss_split,
             commands::sss_combine,
+            commands::sss_split_secret,
+            commands::sss_combine_secret,
+            commands::cover_info,
+            commands::embed_composite,
+            commands::extract_composite,
+            commands::composite_capacity,
             commands::quality,
             commands::read_file,
             commands::write_file,
+            video_tools::ffmpeg_status,
+            video_tools::video_to_y4m,
+            video_tools::y4m_to_video,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Stegno");

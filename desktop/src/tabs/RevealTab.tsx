@@ -1,25 +1,27 @@
-import { useState, type ReactNode } from "react";
-import { extractAuto, type Revealed } from "../api";
-import { Drop, errMsg, pickFile, saveBytes, type Picked } from "../shared";
+import { useState } from "react";
+import { extractAuto, extractComposite, type Revealed } from "../api";
+import { RevealedOut, saveRevealed, type RevealedView } from "../revealed";
+import { Drop, errMsg, pickFiles, type Picked } from "../shared";
 
 export function RevealTab() {
-  const [file, setFile] = useState<Picked | null>(null);
+  const [files, setFiles] = useState<Picked[]>([]);
   const [pass, setPass] = useState("");
   const [busy, setBusy] = useState(false);
-  const [out, setOut] = useState<{ ok: boolean; node: ReactNode } | null>(null);
+  const [view, setView] = useState<RevealedView | null>(null);
 
   async function doReveal() {
-    if (!file) return;
-    setBusy(true); setOut(null);
+    if (!files.length) return;
+    setBusy(true); setView(null);
     try {
-      const r = await extractAuto(file.bytes, pass);
-      const rv: Revealed = r.revealed;
-      if (rv.kind === "none") setOut({ ok: false, node: "No hidden data found (or wrong password)." });
-      else if (rv.kind === "text") setOut({ ok: true, node: <><div>Revealed via <b>{r.methodId || "auto"}</b></div><pre>{rv.text}</pre></> });
-      else if (rv.kind === "file") { await saveBytes(rv.bytes, rv.name); setOut({ ok: true, node: `Recovered file ${rv.name} - saved.` }); }
-      else if (rv.kind === "files") { for (const f of rv.files) await saveBytes(f.bytes, f.name); setOut({ ok: true, node: `Recovered ${rv.files.length} files.` }); }
+      let rv: Revealed = await extractComposite(files.map((f) => f.bytes), pass);
+      // A file hidden with a chosen method isn't composite-framed, so fall back
+      // to the auto-detecting single-file path before giving up.
+      if (rv.kind === "none" && files.length === 1) {
+        rv = (await extractAuto(files[0].bytes, pass)).revealed;
+      }
+      setView(await saveRevealed(rv));
     } catch (e) {
-      setOut({ ok: false, node: errMsg(e) });
+      setView({ ok: false, message: errMsg(e) });
     } finally { setBusy(false); }
   }
 
@@ -27,13 +29,32 @@ export function RevealTab() {
     <section className="panel active">
       <div className="card">
         <h2>Reveal a secret</h2>
-        <p className="hint">Open a hidden message. Method detected automatically.</p>
-        <label>Stego file</label>
-        <Drop label={file ? file.name : "Choose the file"} icon={file ? "✅" : "🗂️"} has={!!file} onClick={async () => setFile(await pickFile())} />
+        <p className="hint">
+          Pick the stego file(s) and a password. The carrier and method are detected automatically.
+        </p>
+        <label>Stego file(s)</label>
+        <Drop
+          label={files.length
+            ? `${files.length} file(s): ${files.map((f) => f.name).join(", ")}`
+            : "Choose the file(s) — any type. If it was split, pick all the parts."}
+          icon={files.length ? "✅" : "🗂️"}
+          has={files.length > 0}
+          onClick={async () => {
+            const picked = await pickFiles();
+            if (picked.length) { setFiles(picked); setView(null); }
+          }}
+        />
         <label>Password</label>
-        <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="The password used to hide it" />
-        <button className="primary" disabled={!file || busy} onClick={doReveal}>{busy ? "Revealing…" : "Reveal"}</button>
-        {out && <div className="out"><div className={`result-banner ${out.ok ? "ok" : "bad"}`}>{out.ok ? "🔓 " : "🔎 "}{out.node}</div></div>}
+        <input
+          type="password"
+          value={pass}
+          onChange={(e) => setPass(e.target.value)}
+          placeholder="The password used to hide it"
+        />
+        <button className="primary" disabled={!files.length || busy} onClick={doReveal}>
+          {busy ? "Revealing…" : "Reveal"}
+        </button>
+        {view && <RevealedOut view={view} />}
       </div>
     </section>
   );

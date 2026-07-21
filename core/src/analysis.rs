@@ -225,29 +225,44 @@ fn solve_spa_quadratic(a: f64, b: f64, c: f64) -> f64 {
 /// a clear positive gap (regular ≫ singular); LSB embedding pushes it toward 0,
 /// so a **smaller** gap is more suspicious. Diagnostic, not a calibrated rate.
 pub fn rs_regularity_gap(img: &RgbaImage) -> f64 {
-    // Flatten R,G,B samples row-major.
-    let mut s: Vec<i32> = Vec::with_capacity(img.pixels.len() / 4 * 3);
-    for px in img.pixels.chunks_exact(4) {
-        s.push(px[0] as i32);
-        s.push(px[1] as i32);
-        s.push(px[2] as i32);
-    }
+    // Groups must be spatially adjacent samples of the *same* channel. Taking
+    // them from an interleaved R,G,B stream instead mixes channels within a
+    // group, so the "variance" measured is the colour difference between
+    // channels rather than local pixel correlation — which collapses the
+    // statistic to ~0 for clean and embedded images alike, and made every clean
+    // photo look maximally suspicious.
     const MASK: [bool; 4] = [false, true, true, false];
-    let var = |g: &[i32]| (g[1] - g[0]).abs() + (g[2] - g[1]).abs() + (g[3] - g[2]).abs();
+    let var = |g: &[i32; 4]| (g[1] - g[0]).abs() + (g[2] - g[1]).abs() + (g[3] - g[2]).abs();
+
+    let w = img.width as usize;
+    let h = img.height as usize;
+    if w < 4 || h == 0 {
+        return 0.0;
+    }
     let (mut regular, mut singular) = (0u64, 0u64);
-    for g in s.chunks_exact(4) {
-        let orig = var(g);
-        let mut f = [g[0], g[1], g[2], g[3]];
-        for i in 0..4 {
-            if MASK[i] {
-                f[i] ^= 1; // F1 flip
+    for c in 0..3 {
+        for row in 0..h {
+            let base = row * w;
+            // Disjoint runs of four horizontally adjacent samples in one channel.
+            for col in (0..w.saturating_sub(3)).step_by(4) {
+                let mut g = [0i32; 4];
+                for (i, slot) in g.iter_mut().enumerate() {
+                    *slot = img.pixels[(base + col + i) * 4 + c] as i32;
+                }
+                let orig = var(&g);
+                let mut f = g;
+                for i in 0..4 {
+                    if MASK[i] {
+                        f[i] ^= 1; // F1 flip
+                    }
+                }
+                let flipped = var(&f);
+                if flipped > orig {
+                    regular += 1;
+                } else if flipped < orig {
+                    singular += 1;
+                }
             }
-        }
-        let flipped = var(&f);
-        if flipped > orig {
-            regular += 1;
-        } else if flipped < orig {
-            singular += 1;
         }
     }
     let denom = (regular + singular) as f64;

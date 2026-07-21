@@ -195,6 +195,13 @@ private fun BenchmarkCard() {
         result?.let { b ->
             Text(b.verdict, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 8.dp))
+            // The verdict alone says nothing about what the number means.
+            Text(
+                b.explanation,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
+            )
             StatRow("Time", "%.0f ms".format(b.millis))
             StatRow("Memory", "${b.memoryKib.toInt() / 1024} MiB")
             StatRow("Iterations", "${b.iterations}")

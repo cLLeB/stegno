@@ -108,6 +108,115 @@ impl From<SecretDto> for Secret {
     }
 }
 
+// --- carriers & composite --------------------------------------------------
+
+/// What a cover is, so the UI can report capacity and name the stego file for
+/// the right container instead of assuming a photo.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverInfoDto {
+    pub kind: String,
+    /// The container the bytes actually are — name output files from this.
+    pub format: String,
+    pub extension: String,
+    pub mime: String,
+    pub preserves_container: bool,
+    pub slots: u64,
+    pub capacity_bytes: u64,
+}
+
+#[tauri::command]
+pub fn cover_info(cover: Vec<u8>) -> Result<CoverInfoDto, String> {
+    let i = stegno_core::cover_info(cover).map_err(|e| e.to_string())?;
+    Ok(CoverInfoDto {
+        kind: i.kind,
+        format: i.format,
+        extension: i.extension,
+        mime: i.mime,
+        preserves_container: i.preserves_container,
+        slots: i.slots,
+        capacity_bytes: i.capacity_bytes,
+    })
+}
+
+/// One composite entry: a secret plus the passphrase that opens it.
+#[derive(Deserialize)]
+pub struct EntryDto {
+    pub secret: SecretDto,
+    pub passphrase: String,
+}
+
+impl From<EntryDto> for Recipient {
+    fn from(e: EntryDto) -> Self {
+        Recipient {
+            secret: e.secret.into(),
+            passphrase: e.passphrase,
+        }
+    }
+}
+
+/// The one primitive behind every mix: N independent entries across M covers of
+/// any medium. 1×1 is a plain hide, 2×1 a decoy, N×1 multi-recipient, 1×M a
+/// split, N×M all of it at once. Returns one stego file per cover, in order.
+#[tauri::command]
+pub fn embed_composite(
+    covers: Vec<Vec<u8>>,
+    entries: Vec<EntryDto>,
+    robustness: u8,
+    compress: bool,
+) -> Result<Vec<Vec<u8>>, String> {
+    let covers = covers.into_iter().map(|bytes| ByteChunk { bytes }).collect();
+    let entries = entries.into_iter().map(Recipient::from).collect();
+    stegno_core::embed_composite(covers, entries, robustness, compress)
+        .map(|out| out.into_iter().map(|c| c.bytes).collect())
+        .map_err(|e| e.to_string())
+}
+
+/// Reveal the one entry a passphrase unlocks. Pass every file made together.
+#[tauri::command]
+pub fn extract_composite(stegos: Vec<Vec<u8>>, passphrase: String) -> Result<RevealedDto, String> {
+    let stegos = stegos.into_iter().map(|bytes| ByteChunk { bytes }).collect();
+    stegno_core::extract_composite(stegos, passphrase)
+        .map(RevealedDto::from)
+        .map_err(|e| e.to_string())
+}
+
+/// Usable bytes for one entry when `entry_count` entries share these covers.
+#[tauri::command]
+pub fn composite_capacity(covers: Vec<Vec<u8>>, entry_count: u32) -> Result<u64, String> {
+    let covers = covers.into_iter().map(|bytes| ByteChunk { bytes }).collect();
+    stegno_core::composite_capacity(covers, entry_count).map_err(|e| e.to_string())
+}
+
+/// Split a typed secret into Shamir shares, so a shared file recombines under
+/// its own name rather than as anonymous bytes.
+#[tauri::command]
+pub fn sss_split_secret(
+    secret: SecretDto,
+    threshold: u8,
+    shares: u8,
+) -> Result<Vec<SecretShareDto>, String> {
+    stegno_core::sss_split_secret(secret.into(), threshold, shares)
+        .map(|v| {
+            v.into_iter()
+                .map(|s| SecretShareDto { x: s.x, y: s.y })
+                .collect()
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// Recombine typed shares, restoring the secret's kind and any filenames.
+#[tauri::command]
+pub fn sss_combine_secret(shares: Vec<SecretShareDto>) -> Result<RevealedDto, String> {
+    let shares = shares
+        .into_iter()
+        .map(|s| SecretShare { x: s.x, y: s.y })
+        .collect();
+    stegno_core::sss_combine_secret(shares)
+        .map(RevealedDto::from)
+        .map_err(|e| e.to_string())
+}
+
 /// Hide a real message and a decoy message in one photo, each under its own
 /// password. Supports either text or file payloads per slot. Always produces a
 /// PNG photo.
@@ -166,18 +275,26 @@ pub enum RevealedDto {
     Files { files: Vec<stegno_core::payload::FileRecord> },
 }
 
+impl From<Revealed> for RevealedDto {
+    fn from(r: Revealed) -> Self {
+        match r {
+            Revealed::None => RevealedDto::None,
+            Revealed::Text { text } => RevealedDto::Text { text },
+            Revealed::File { name, bytes } => RevealedDto::File { name, bytes },
+            Revealed::Files { files } => RevealedDto::Files { files },
+        }
+    }
+}
+
 #[tauri::command]
 pub fn extract(
     method_id: String,
     stego: Vec<u8>,
     passphrase: String,
 ) -> Result<RevealedDto, String> {
-    match core_extract(method_id, stego, passphrase).map_err(|e| e.to_string())? {
-        Revealed::None => Ok(RevealedDto::None),
-        Revealed::Text { text } => Ok(RevealedDto::Text { text }),
-        Revealed::File { name, bytes } => Ok(RevealedDto::File { name, bytes }),
-        Revealed::Files { files } => Ok(RevealedDto::Files { files }),
-    }
+    core_extract(method_id, stego, passphrase)
+        .map(RevealedDto::from)
+        .map_err(|e| e.to_string())
 }
 
 /// Auto-detected extraction result: which method matched (empty if none).
@@ -401,6 +518,8 @@ pub struct KdfBenchmarkDto {
     pub memory_kib: u32,
     pub iterations: u32,
     pub verdict: String,
+    /// Plain-language reading — a bare "weak" tells the user nothing actionable.
+    pub explanation: String,
 }
 
 #[tauri::command]
@@ -411,6 +530,7 @@ pub fn benchmark_kdf() -> KdfBenchmarkDto {
         memory_kib: b.memory_kib,
         iterations: b.iterations,
         verdict: b.verdict,
+        explanation: b.explanation,
     }
 }
 

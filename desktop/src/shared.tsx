@@ -7,6 +7,8 @@ export type Bytes = number[];
 export interface Picked {
   name: string;
   bytes: Bytes;
+  /** Full path on disk. Needed by tools that read the file themselves (ffmpeg). */
+  path: string;
 }
 
 const IMAGE_ACCEPT = "png,jpg,jpeg,bmp,webp,gif";
@@ -19,7 +21,7 @@ export async function pickFile(accept?: string): Promise<Picked | null> {
   });
   if (!path || typeof path !== "string") return null;
   const bytes = await readFile(path);
-  return { name: path.split(/[\\/]/).pop() || "file", bytes };
+  return { name: path.split(/[\\/]/).pop() || "file", bytes, path };
 }
 
 export async function pickFiles(accept?: string): Promise<Picked[]> {
@@ -30,15 +32,29 @@ export async function pickFiles(accept?: string): Promise<Picked[]> {
   if (!paths) return [];
   const arr = Array.isArray(paths) ? paths : [paths];
   return Promise.all(
-    arr.map(async (p) => ({ name: p.split(/[\\/]/).pop() || "file", bytes: await readFile(p) }))
+    arr.map(async (p) => ({
+      name: p.split(/[\\/]/).pop() || "file",
+      bytes: await readFile(p),
+      path: p,
+    }))
   );
 }
 
-export async function saveBytes(bytes: Bytes, defaultName: string): Promise<boolean> {
-  const path = await save({ defaultPath: defaultName });
-  if (!path) return false;
+/** Ask where to save, then write. Returns the chosen path, or null if cancelled. */
+export async function saveBytes(bytes: Bytes, defaultName: string): Promise<string | null> {
+  const path = await savePath(defaultName);
+  if (!path) return null;
   await writeFile(path, bytes);
-  return true;
+  return path;
+}
+
+/**
+ * Ask where to save without writing anything — for tools that produce the file
+ * themselves and just need a destination (the ffmpeg re-encode).
+ */
+export async function savePath(defaultName: string): Promise<string | null> {
+  const path = await save({ defaultPath: defaultName });
+  return path ?? null;
 }
 
 export function blobUrl(bytes: Bytes, mime: string): string {

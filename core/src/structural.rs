@@ -47,6 +47,12 @@ fn rfind_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .rposition(|w| w == needle)
 }
 
+/// The container `data` actually is. Public so callers can name output files
+/// after what they hold rather than what a carrier would have produced.
+pub fn detect_container(data: &[u8]) -> &'static str {
+    detect_format(data)
+}
+
 fn detect_format(data: &[u8]) -> &'static str {
     if data.starts_with(PNG_SIG) {
         "png"
@@ -54,10 +60,195 @@ fn detect_format(data: &[u8]) -> &'static str {
         "jpeg"
     } else if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
         "gif"
+    } else if data.starts_with(b"%PDF-") {
+        "pdf"
+    } else if data.starts_with(b"RIFF") && data.len() > 12 && &data[8..12] == b"WAVE" {
+        "wav"
+    } else if data.starts_with(b"YUV4MPEG2") {
+        "y4m"
     } else if std::str::from_utf8(data).is_ok() {
         "text"
     } else {
         "unknown"
+    }
+}
+
+/// Markers this engine itself writes. Finding one is not a statistical hint —
+/// it is proof the file was produced by Stegno.
+const FRAME_MAGIC: &[u8] = b"STG0"; // payload frame header (payload.rs)
+const EOF_FOOTER: &[u8] = b"SEOF"; // append_eof trailer
+const CARRIER_FOOTER: &[u8] = b"SCAR"; // appended-region carrier trailer
+
+/// Scan for the engine's own signatures, whatever the container.
+///
+/// This runs for **every** format, including ones nothing else here understands.
+/// Previously an unrecognised container got no structural scan at all, so a
+/// payload appended to a PDF — magic bytes and all, sitting in plain sight at
+/// the end of the file — was reported as "clean". A scanner that misses the
+/// tool's own output is worse than no scanner, because it reassures.
+fn scan_engine_markers(data: &[u8], findings: &mut Vec<StructuralFinding>) {
+    let n = data.len();
+
+    // append_eof: `... | frame | len(u64 BE) | "SEOF"`.
+    if n >= 12 && &data[n - 4..] == EOF_FOOTER {
+        let mut len_bytes = [0u8; 8];
+        len_bytes.copy_from_slice(&data[n - 12..n - 4]);
+        let claimed = u64::from_be_bytes(len_bytes);
+        findings.push(StructuralFinding {
+            kind: "stegno_append_eof".into(),
+            detail: format!(
+                "Stegno `append_eof` trailer at the end of the file, declaring a {claimed}-byte payload."
+            ),
+            severity: 2,
+        });
+    }
+
+    // Appended-region carrier: `... | region | count(u64 BE) | "SCAR"`.
+    if n >= 12 && &data[n - 4..] == CARRIER_FOOTER {
+        let mut len_bytes = [0u8; 8];
+        len_bytes.copy_from_slice(&data[n - 12..n - 4]);
+        let slots = u64::from_be_bytes(len_bytes);
+        findings.push(StructuralFinding {
+            kind: "stegno_carrier_region".into(),
+            detail: format!(
+                "Stegno appended-region trailer declaring {slots} payload slots ({} bytes).",
+                slots / 8
+            ),
+            severity: 2,
+        });
+    }
+
+    // Format-native carriers park the payload in a field the format defines as
+    // ignorable. Each leaves its own fingerprint, so name the method rather than
+    // reporting a generic frame and leaving the user to guess.
+    scan_native_carriers(data, findings);
+
+    // The framed payload itself. Methods that append leave it in the clear; LSB
+    // methods scatter it through the carrier, so absence here proves nothing.
+    // Only report it when nothing more specific already explained the file.
+    if findings.is_empty() {
+        if let Some(at) = rfind_subsequence(data, FRAME_MAGIC) {
+            findings.push(StructuralFinding {
+                kind: "stegno_frame".into(),
+                detail: format!("Stegno payload frame header `STG0` at offset {at}."),
+                severity: 2,
+            });
+        }
+    }
+}
+
+/// Signatures of the format-native carriers, each keyed to the field it uses.
+fn scan_native_carriers(data: &[u8], findings: &mut Vec<StructuralFinding>) {
+    let n = data.len();
+
+    // zip_comment: a non-empty end-of-central-directory comment holding a frame.
+    if n >= 22 {
+        let horizon = n.saturating_sub(22 + u16::MAX as usize);
+        let mut i = n - 22;
+        loop {
+            if &data[i..i + 4] == b"PK\x05\x06" {
+                let len = u16::from_le_bytes([data[i + 20], data[i + 21]]) as usize;
+                if i + 22 + len == n && len > 0 && data[i + 22..].starts_with(FRAME_MAGIC) {
+                    findings.push(StructuralFinding {
+                        kind: "stegno_zip_comment".into(),
+                        detail: format!(
+                            "{len} bytes in the archive's end-of-central-directory comment."
+                        ),
+                        severity: 2,
+                    });
+                }
+                break;
+            }
+            if i == horizon {
+                break;
+            }
+            i -= 1;
+        }
+    }
+
+    // pdf_object: our marked stream object in an incremental update.
+    if data.starts_with(b"%PDF-") && rfind_subsequence(data, b"/StegnoData true").is_some() {
+        findings.push(StructuralFinding {
+            kind: "stegno_pdf_object".into(),
+            detail: "An appended PDF revision contains a marked, unreferenced stream object."
+                .into(),
+            severity: 2,
+        });
+    }
+
+    // stl_attrib: our marker replaces the start of the 80-byte STL header.
+    if n > 84 && data.starts_with(b"STGL") {
+        let tris = u32::from_le_bytes([data[80], data[81], data[82], data[83]]) as usize;
+        if 84 + tris * 50 == n {
+            findings.push(StructuralFinding {
+                kind: "stegno_stl_attrib".into(),
+                detail: format!(
+                    "STL header carries a Stegno marker; payload rides {tris} attribute words."
+                ),
+                severity: 2,
+            });
+        }
+    }
+
+    // mp4_free: our marker inside a top-level free/skip box.
+    if n > 16 && rfind_subsequence(data, b"freeSTG4").is_some() {
+        findings.push(StructuralFinding {
+            kind: "stegno_mp4_free".into(),
+            detail: "A top-level ISO-BMFF `free` box carries a Stegno payload.".into(),
+            severity: 2,
+        });
+    }
+
+    // mp3_id3: a PRIV frame owned by us inside the ID3 tag.
+    if data.starts_with(b"ID3") && rfind_subsequence(data, b"PRIV").is_some() {
+        if let Some(at) = rfind_subsequence(data, b"stegno\0") {
+            findings.push(StructuralFinding {
+                kind: "stegno_mp3_id3".into(),
+                detail: format!("An ID3 PRIV frame owned by `stegno` at offset {at}."),
+                severity: 2,
+            });
+        }
+    }
+}
+
+/// Data appended after a PDF's final `%%EOF` marker.
+fn scan_pdf(data: &[u8], findings: &mut Vec<StructuralFinding>) {
+    let Some(eof) = rfind_subsequence(data, b"%%EOF") else {
+        findings.push(StructuralFinding {
+            kind: "malformed_pdf".into(),
+            detail: "No %%EOF marker found; the file may be truncated or disguised.".into(),
+            severity: 1,
+        });
+        return;
+    };
+    // A trailing newline or two after %%EOF is normal.
+    let after = data.len().saturating_sub(eof + 5);
+    if after > 4 {
+        findings.push(StructuralFinding {
+            kind: "trailing_data".into(),
+            detail: format!("{after} bytes follow the final %%EOF marker."),
+            severity: 2,
+        });
+    }
+}
+
+/// Sample bytes past the end of a WAV's declared RIFF size.
+fn scan_wav(data: &[u8], findings: &mut Vec<StructuralFinding>) {
+    if data.len() < 12 {
+        return;
+    }
+    let riff_size =
+        u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
+    let declared_end = riff_size + 8;
+    if data.len() > declared_end + 4 {
+        findings.push(StructuralFinding {
+            kind: "trailing_data".into(),
+            detail: format!(
+                "{} bytes follow the end declared by the RIFF header.",
+                data.len() - declared_end
+            ),
+            severity: 2,
+        });
     }
 }
 
@@ -277,9 +468,13 @@ pub fn scan_structure(data: Vec<u8>) -> StructuralReport {
         "jpeg" => scan_jpeg(&data, &mut findings),
         "gif" => scan_gif(&data, &mut findings),
         "text" => scan_text(&data, &mut findings),
+        "pdf" => scan_pdf(&data, &mut findings),
+        "wav" => scan_wav(&data, &mut findings),
         _ => {}
     }
     scan_zip_polyglot(&data, format, &mut findings);
+    // Format-independent, so it also covers containers nothing above parses.
+    scan_engine_markers(&data, &mut findings);
 
     findings.sort_by(|a, b| b.severity.cmp(&a.severity));
     let suspicious = findings.iter().any(|f| f.severity >= 2);
@@ -288,6 +483,124 @@ pub fn scan_structure(data: Vec<u8>) -> StructuralReport {
         format: format.to_string(),
         findings,
         suspicious,
+    }
+}
+
+#[cfg(test)]
+mod round_trip_tests {
+    //! The scanner must catch what this engine itself produces.
+    //!
+    //! It previously did not. Any container it could not parse — a PDF, a video,
+    //! an arbitrary blob — skipped structural scanning entirely, so a payload
+    //! appended in plain sight with its own magic bytes came back "clean". These
+    //! tests hide real data with real methods and demand it be found.
+
+    use crate::payload::Secret;
+    use crate::structural::scan_structure;
+
+    fn pdf() -> Vec<u8> {
+        let mut v = b"%PDF-1.7\n".to_vec();
+        v.extend((0..20_000u32).map(|i| (i.wrapping_mul(2654435761) >> 16) as u8));
+        v.extend_from_slice(b"\n%%EOF\n");
+        v
+    }
+
+    fn hide(method: &str, cover: Vec<u8>) -> Vec<u8> {
+        crate::embed(
+            method.into(),
+            cover,
+            Secret::Text { text: "x".repeat(500) },
+            "pw".into(),
+        )
+        .unwrap_or_else(|e| panic!("{method} failed to embed: {e}"))
+    }
+
+    #[test]
+    fn appended_payload_in_a_pdf_is_detected() {
+        let clean = scan_structure(pdf());
+        assert!(!clean.suspicious, "a clean PDF must not be flagged");
+        assert_eq!(clean.format, "pdf", "PDFs must be recognised, not 'unknown'");
+
+        let stego = scan_structure(hide("append_eof", pdf()));
+        assert!(
+            stego.suspicious,
+            "appended payload in a PDF reported as clean: {:?}",
+            stego.findings
+        );
+    }
+
+    #[test]
+    fn the_carrier_appended_region_is_detected() {
+        // The composite/decoy path on a non-image cover.
+        let stego = crate::embed_composite(
+            vec![crate::ByteChunk { bytes: pdf() }],
+            vec![crate::Recipient {
+                secret: Secret::Text { text: "real".into() },
+                passphrase: "a".into(),
+            }],
+            0,
+            false,
+        )
+        .unwrap();
+        let report = scan_structure(stego[0].bytes.clone());
+        assert!(
+            report.suspicious,
+            "carrier region reported as clean: {:?}",
+            report.findings
+        );
+        assert!(report.findings.iter().any(|f| f.kind == "stegno_carrier_region"));
+    }
+
+    #[test]
+    fn appended_payload_is_detected_in_any_container() {
+        // Containers the scanner has no parser for must still be covered.
+        let blobs: Vec<(&str, Vec<u8>)> = vec![
+            ("mkv-ish", {
+                let mut v = vec![0x1A, 0x45, 0xDF, 0xA3];
+                v.extend((0..9000u32).map(|i| (i % 251) as u8));
+                v
+            }),
+            ("random", (0..9000u32).map(|i| (i.wrapping_mul(31) % 251) as u8).collect()),
+        ];
+        for (label, cover) in blobs {
+            let report = scan_structure(hide("append_eof", cover));
+            assert!(
+                report.suspicious,
+                "{label}: appended payload reported as clean: {:?}",
+                report.findings
+            );
+        }
+    }
+
+    #[test]
+    fn a_clean_file_of_an_unparsed_format_is_not_flagged() {
+        // Catching everything by crying wolf would be just as useless.
+        let mut v = vec![0x1A, 0x45, 0xDF, 0xA3];
+        v.extend((0..9000u32).map(|i| (i % 251) as u8));
+        let report = scan_structure(v);
+        assert!(!report.suspicious, "false positive: {:?}", report.findings);
+    }
+
+    #[test]
+    fn trailing_data_after_a_wav_is_detected() {
+        let mut wav = b"RIFF".to_vec();
+        wav.extend_from_slice(&(36u32 + 800).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&44100u32.to_le_bytes());
+        wav.extend_from_slice(&88200u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&800u32.to_le_bytes());
+        wav.extend(std::iter::repeat_n(7u8, 800));
+
+        assert!(!scan_structure(wav.clone()).suspicious, "clean WAV flagged");
+        wav.extend_from_slice(b"appended secret payload here");
+        let report = scan_structure(wav);
+        assert!(report.suspicious, "trailing data after WAV missed: {:?}", report.findings);
     }
 }
 

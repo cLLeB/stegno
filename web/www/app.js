@@ -74,6 +74,8 @@ function wireDrop(dropId, inputId, onFile) {
     onFile(f);
   });
 }
+/// Collects several files, keeping each name so stego output can be named after
+/// the cover it came from.
 function wireDropMulti(dropId, inputId, onFiles) {
   const drop = $(dropId), input = $(inputId);
   drop.addEventListener("click", () => input.click());
@@ -82,9 +84,33 @@ function wireDropMulti(dropId, inputId, onFiles) {
     if (!files.length) return;
     drop.classList.add("has");
     drop.innerHTML = `<span class="big">✅</span>${files.length} file(s) selected`;
-    onFiles(await Promise.all(files.map(bytesOf)));
+    onFiles(await Promise.all(files.map(async (f) => ({ name: f.name, bytes: await bytesOf(f) }))));
   });
 }
+
+/* --------- carrier-aware naming --------- */
+/** Base name without its extension. */
+function stemOf(name) { return name.replace(/\.[^.]+$/, ""); }
+/** Original extension including the dot, or "" when there isn't one. */
+function extOf(name) { return name.match(/\.[^.]+$/)?.[0] || ""; }
+
+/**
+ * What a stego file made from `cover` should be called. Photos are re-encoded
+ * to PNG (lossless is mandatory for LSB survival) so they take a .png name;
+ * every other carrier keeps its own container, so a .pdf cover stays a .pdf and
+ * a clip stays playable under its original extension.
+ */
+function stegoNameFor(cover, info, fallbackStem) {
+  const stem = cover?.name ? stemOf(cover.name) : fallbackStem;
+  if (info?.preservesContainer && cover?.name) return `${stem}-hidden${extOf(cover.name)}`;
+  return `${stem}-hidden.${info?.extension || "png"}`;
+}
+
+/** Human label for a carrier kind, for the capacity readout. */
+const KIND_LABEL = {
+  image: "photo", audio: "audio", text: "text",
+  video: "video (frame-level)", bytes: "file (appended)",
+};
 
 /* ---------------- Boot ---------------- */
 let IMAGE_METHODS = [], ALL_METHODS = [];
@@ -109,22 +135,87 @@ let composeCovers = [];
 let entries = [{ type: "text", text: "", files: [], pass: "" }];
 function setupCompose() {
   renderEntries();
-  wireDropMulti("cmpCoversDrop", "cmpCoversInput", (arr) => { composeCovers = arr; refreshCompose(); });
-  $("cmpAddEntry").addEventListener("click", () => {
-    if (entries.length < 8) { entries.push({ type: "text", text: "", files: [], pass: "" }); renderEntries(); refreshCompose(); }
+  wireDropMulti("cmpCoversDrop", "cmpCoversInput", (arr) => {
+    // Ask the engine what each cover actually is, so capacity and the eventual
+    // filename reflect the real carrier rather than assuming a photo.
+    composeCovers = arr.map((c) => {
+      let info = null;
+      try { info = stg.coverInfo(c.bytes); } catch { /* engine will report on embed */ }
+      return { ...c, info };
+    });
+    // A new cover is a new situation, so go back to choosing automatically.
+    methodIsAuto = true;
+    inputsChanged();
   });
-  $("cmpMethod").addEventListener("change", refreshCompose);
+  $("cmpAddEntry").addEventListener("click", () => {
+    if (entries.length < 8) { entries.push({ type: "text", text: "", files: [], pass: "" }); renderEntries(); inputsChanged(); }
+  });
+  // A manual pick wins until the cover or secret changes again.
+  $("cmpMethod").addEventListener("change", () => { methodIsAuto = false; refreshCompose(); });
   $("cmpPlanBtn").addEventListener("click", doPlan);
   $("cmpBtn").addEventListener("click", doCompose);
 }
 function isSingle() { return entries.length === 1 && composeCovers.length === 1; }
+
+/** Something the user changed: refresh the form and re-pick the method. */
+function inputsChanged() {
+  refreshCompose();
+  scheduleAutoMethod();
+}
+
+/* --------- automatic method choice --------- */
+// True while the shown method is the engine's pick rather than the user's.
+let methodIsAuto = true;
+let autoMethodTimer = null;
+
+/** Payload size of the first entry, which is what a single hide will carry. */
+function firstEntryLen() {
+  const e = entries[0];
+  if (!e) return 0;
+  return e.type === "text"
+    ? new TextEncoder().encode(e.text).length
+    : e.files.reduce((n, f) => n + f.bytes.length, 0);
+}
+
+/**
+ * Re-pick the best method for the current cover and secret.
+ *
+ * Debounced and deferred because planning asks every method for its capacity,
+ * and the image methods each decode the cover — about 1.8s on a 6-megapixel
+ * photo. Running that per keystroke would lock the page, so it settles first
+ * and reports progress while it works.
+ */
+function scheduleAutoMethod() {
+  if (autoMethodTimer) clearTimeout(autoMethodTimer);
+  const note = $("cmpAutoNote");
+  if (!methodIsAuto || !isSingle() || !composeCovers.length) {
+    note.textContent = methodIsAuto ? "" : "Method chosen by you.";
+    return;
+  }
+  note.textContent = "Choosing the best method…";
+  autoMethodTimer = setTimeout(() => {
+    try {
+      const recs = stg.planEmbedding(composeCovers[0].bytes, firstEntryLen());
+      const best = recs.find((r) => r.fits);
+      if (best) {
+        $("cmpMethod").value = best.methodId;
+        note.innerHTML = `Chosen for you: <b>${esc(best.displayName || best.methodId)}</b> — ${esc(best.note)}`;
+      } else {
+        note.textContent = "No method fits this secret in this cover.";
+      }
+    } catch {
+      note.textContent = "";
+    }
+    refreshCompose();
+  }, 400);
+}
 function doPlan() {
   if (!composeCovers.length) return;
   const out = $("cmpPlanOut");
   try {
     const payloadLen = entries[0].type === "text" ? new TextEncoder().encode(entries[0].text).length
       : entries[0].files.reduce((n, f) => n + f.bytes.length, 0);
-    const recs = stg.planEmbedding(composeCovers[0], payloadLen);
+    const recs = stg.planEmbedding(composeCovers[0].bytes, payloadLen);
     const byId = Object.fromEntries(ALL_METHODS.map((m) => [m.id, m.displayName]));
     out.innerHTML = recs.slice(0, 4).map((r) =>
       `<button class="rec" data-id="${esc(r.methodId)}"><b>${r.fits ? "✅" : "⚠️"} ${esc(byId[r.methodId] || r.methodId)}</b><span class="tag ${r.stealthTier >= 2 ? "ok" : r.stealthTier === 1 ? "warn" : "bad"}">stealth ${r.stealthTier}/3</span><span class="small">${esc(r.note)}</span></button>`).join("");
@@ -149,9 +240,9 @@ function renderEntries() {
     </div>`).join("");
   wrap.querySelectorAll(".recip").forEach((row) => {
     const i = +row.dataset.i;
-    row.querySelectorAll(".e-type button[data-t]").forEach((b) => b.addEventListener("click", () => { entries[i].type = b.dataset.t; renderEntries(); refreshCompose(); }));
-    const del = row.querySelector(".e-del"); if (del) del.addEventListener("click", () => { entries.splice(i, 1); renderEntries(); refreshCompose(); });
-    const ta = row.querySelector(".e-text"); if (ta) ta.addEventListener("input", () => { entries[i].text = ta.value; refreshCompose(); });
+    row.querySelectorAll(".e-type button[data-t]").forEach((b) => b.addEventListener("click", () => { entries[i].type = b.dataset.t; renderEntries(); inputsChanged(); }));
+    const del = row.querySelector(".e-del"); if (del) del.addEventListener("click", () => { entries.splice(i, 1); renderEntries(); inputsChanged(); });
+    const ta = row.querySelector(".e-text"); if (ta) ta.addEventListener("input", () => { entries[i].text = ta.value; inputsChanged(); });
     const pass = row.querySelector(".e-pass");
     pass.addEventListener("input", () => { entries[i].pass = pass.value; updateStrength(row, pass.value); refreshCompose(); });
     updateStrength(row, e.pass);
@@ -173,7 +264,7 @@ function pickEntryFiles(i) {
   inp.type = "file"; inp.multiple = true;
   inp.addEventListener("change", async () => {
     entries[i].files = await Promise.all([...inp.files].map(async (f) => ({ name: f.name, bytes: await bytesOf(f) })));
-    renderEntries(); refreshCompose();
+    renderEntries(); inputsChanged();
   });
   inp.click();
 }
@@ -184,17 +275,46 @@ function entryToJs(e) {
 }
 function refreshCompose() {
   const single = isSingle();
-  $("cmpSingle").hidden = !single;
-  $("cmpMixNote").hidden = single;
+  // The method picker only governs a single-secret hide: a mix is placed by the
+  // layered region scheme instead. Disable it rather than removing it, and say
+  // which scheme is in play, so nothing silently disappears from the form.
+  const method = $("cmpMethod"), plan = $("cmpPlanBtn");
+  method.disabled = !single;
+  plan.disabled = !single;
+  $("cmpSingle").classList.toggle("inactive", !single);
+  if (!single) $("cmpPlanOut").innerHTML = "";
+  $("cmpScheme").innerHTML = composeCovers.length ? describeScheme() : "";
+
   if (composeCovers.length) {
     try {
-      const cap = single ? stg.capacity($("cmpMethod").value, composeCovers[0]) : stg.compositeCapacity(composeCovers, Math.max(entries.length, 1));
-      $("cmpCap").textContent = `Room for about ${cap.toLocaleString()} bytes${single ? "" : " per secret"}.`;
+      const bytes = composeCovers.map((c) => c.bytes);
+      const cap = single
+        ? stg.capacity(method.value, bytes[0])
+        : stg.compositeCapacity(bytes, Math.max(entries.length, 1));
+      const kinds = composeCovers
+        .map((c) => KIND_LABEL[c.info?.kind] || "file")
+        .filter((k, i, a) => a.indexOf(k) === i)
+        .join(", ");
+      $("cmpCap").textContent =
+        `Carrier: ${kinds}. Room for about ${cap.toLocaleString()} bytes${single ? "" : " per secret"}.`;
     } catch { $("cmpCap").textContent = ""; }
   } else $("cmpCap").textContent = "";
+
   const ready = composeCovers.length >= 1 && entries.length >= 1 &&
     entries.every((e) => e.pass && (e.type === "text" ? e.text : e.files.length > 0));
   $("cmpBtn").disabled = !ready;
+}
+
+/** Plain-language summary of what the current cover/secret counts will do. */
+function describeScheme() {
+  const covers = composeCovers.length, secrets = entries.length;
+  const parts = [];
+  if (secrets === 1) parts.push("one secret");
+  else parts.push(`${secrets} secrets, each with its own password (hand one over as a decoy)`);
+  if (covers === 1) parts.push("in one cover");
+  else parts.push(`split across ${covers} covers — all of them are needed to rebuild`);
+  const scheme = isSingle() ? "Chosen method." : "Layered region scheme (method is chosen for you).";
+  return `<b>${esc(scheme)}</b> ${esc(parts.join(", "))}.`;
 }
 function doCompose() {
   const out = $("cmpOut"); spin(out, "Hiding…");
@@ -202,15 +322,23 @@ function doCompose() {
   defer(() => {
     try {
       if (isSingle()) {
-        const stego = stg.embedAdvancedEntry($("cmpMethod").value, composeCovers[0], entryToJs(entries[0]), robust, compress);
-        download(stego, "stego.png", "image/png");
+        const cover = composeCovers[0];
+        const stego = stg.embedAdvancedEntry($("cmpMethod").value, cover.bytes, entryToJs(entries[0]), robust, compress);
+        // A chosen method may re-encode (image methods emit PNG); trust the
+        // engine's own view of the result rather than the cover's.
+        let info = cover.info;
+        try { info = stg.coverInfo(toU8(stego)); } catch { /* keep the cover's */ }
+        download(stego, stegoNameFor(cover, info, "stego"), info?.mime || "application/octet-stream");
         out.innerHTML = banner(true, "✅ Hid your secret.");
       } else {
-        const parts = stg.embedComposite(composeCovers, entries.map(entryToJs), robust, compress);
-        parts.forEach((p, i) => download(p, parts.length > 1 ? `part${i + 1}.png` : "stego.png", "image/png"));
+        const parts = stg.embedComposite(composeCovers.map((c) => c.bytes), entries.map(entryToJs), robust, compress);
+        parts.forEach((p, i) => {
+          const cover = composeCovers[i];
+          download(p, stegoNameFor(cover, cover?.info, `part${i + 1}`), cover?.info?.mime || "application/octet-stream");
+        });
         out.innerHTML = banner(true, parts.length > 1
-          ? `✅ Hid ${entries.length} secret(s) across ${parts.length} photos (all needed to rebuild).`
-          : `✅ Hid ${entries.length} secret(s) in one photo.`);
+          ? `✅ Hid ${entries.length} secret(s) across ${parts.length} covers (all needed to rebuild).`
+          : `✅ Hid ${entries.length} secret(s) in one cover.`);
       }
     } catch (e) { fail(out, e); }
   });
@@ -219,7 +347,7 @@ function doCompose() {
 /* ---------------- REVEAL ---------------- */
 let revealBytes = [];
 function setupReveal() {
-  wireDropMulti("revealDrop", "revealFile", (arr) => { revealBytes = arr; $("revealBtn").disabled = !revealBytes.length; });
+  wireDropMulti("revealDrop", "revealFile", (arr) => { revealBytes = arr.map((f) => f.bytes); $("revealBtn").disabled = !revealBytes.length; });
   $("revealBtn").addEventListener("click", () => {
     const out = $("revealOut"); spin(out, "Revealing…");
     defer(() => {
@@ -330,7 +458,9 @@ function setupLab() {
     defer(() => {
       try {
         const b = stg.benchmarkKdf();
-        out.innerHTML = banner(true, esc(b.verdict)) + statRow("Time", b.millis.toFixed(0) + " ms") + statRow("Memory", (b.memoryKib / 1024).toFixed(0) + " MiB") + statRow("Iterations", String(b.iterations));
+        out.innerHTML = banner(b.verdict !== "weak", esc(b.verdict)) +
+          `<div class="small" style="margin:6px 0 10px">${esc(b.explanation)}</div>` +
+          statRow("Time", b.millis.toFixed(0) + " ms") + statRow("Memory", (b.memoryKib / 1024).toFixed(0) + " MiB") + statRow("Iterations", String(b.iterations));
       } catch (e) { fail(out, e); }
     });
   });
@@ -371,8 +501,12 @@ function doKeysSplit() {
   const out = $("keysSplitOut");
   const threshold = +$("keysThreshold").value, shares = Math.max(+$("keysShares").value, threshold);
   try {
-    const secret = keysUsingText() ? new TextEncoder().encode($("keysSecret").value) : keysFileBytes.bytes;
-    const list = stg.sssSplit(secret, threshold, shares);
+    // Split the *typed* secret so a shared file recombines under its own name
+    // rather than as anonymous bytes.
+    const entry = keysUsingText()
+      ? { text: $("keysSecret").value }
+      : { files: [{ name: keysFileBytes.name, bytes: keysFileBytes.bytes }] };
+    const list = stg.sssSplitSecret(entry, threshold, shares);
     out.innerHTML = `<div class="small" style="margin-bottom:8px">Any ${threshold} of ${shares} rebuild the secret.</div>` +
       list.map((s, i) => {
         const str = `${s.x}-${hex(s.y)}`;
@@ -396,10 +530,8 @@ function doKeysCombine() {
   try {
     const shares = $("keysCombineText").value.split("\n").map(parseShare).filter(Boolean);
     if (shares.length < 2) { out.innerHTML = banner(false, "Need at least 2 valid shares."); return; }
-    const bytes = toU8(stg.sssCombine(shares));
-    let text; try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { text = null; }
-    if (text !== null) out.innerHTML = banner(true, "🔓 Reconstructed the secret.") + `<pre>${esc(text)}</pre>`;
-    else { download(bytes, "recovered.bin"); out.innerHTML = banner(true, "🔓 Reconstructed a file. Downloaded."); }
+    // Restores whatever was split — a message, or a file under its own name.
+    renderRevealed(out, stg.sssCombineSecret(shares));
   } catch (e) { fail(out, e); }
 }
 

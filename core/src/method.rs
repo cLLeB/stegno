@@ -44,7 +44,24 @@ pub trait Method: Send + Sync {
     fn display_name(&self) -> &'static str;
     fn media(&self) -> Media;
 
+    /// Whether the stego output still *is* the cover the user supplied.
+    ///
+    /// Almost every method modifies a cover in place and returns something
+    /// recognisably the same file. A generative method instead synthesizes a
+    /// fresh carrier and discards the cover entirely — useful when you want
+    /// innocuous-looking text out of nothing, catastrophic when you asked to
+    /// hide something *in a particular file* and got unrelated word-salad back.
+    /// The planner uses this so it never recommends throwing your cover away.
+    fn preserves_cover(&self) -> bool {
+        true
+    }
+
     /// Usable capacity of `cover` for this method.
+    ///
+    /// Must return `Err(UnsupportedFormat)` when this method cannot actually
+    /// carry *this* cover. Callers treat a successful result as a promise that
+    /// [`Method::embed`] will work, and both the planner's ranking and the UI's
+    /// capacity readout are built on that promise.
     fn capacity(&self, cover: &[u8]) -> Result<Capacity, StegnoError>;
 
     /// Embed already-framed `payload` bytes into `cover`, returning stego bytes.

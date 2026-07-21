@@ -33,7 +33,7 @@
         <p class="hint">Add cover photos and one or more secrets. Mix freely.</p>
 
         <label>Cover file(s)</label>
-        <div class="drop" id="cmpCoversDrop"><span class="big">📎</span>Choose one or more covers (photo, text, audio, any file)</div>
+        <div class="drop" id="cmpCoversDrop"><span class="big">📎</span>Choose one or more covers — photo, audio, text, document, video, any file</div>
         <input type="file" id="cmpCoversInput" multiple hidden />
 
         <label>Secrets</label>
@@ -43,10 +43,11 @@
         <div id="cmpSingle">
           <label>Method</label>
           <select id="cmpMethod"></select>
-          <button class="ghost" id="cmpPlanBtn" style="margin-top:10px;width:100%">💡 Suggest a method</button>
+          <div class="small" id="cmpAutoNote"></div>
+          <button class="ghost" id="cmpPlanBtn" style="margin-top:10px;width:100%">💡 Show other methods</button>
           <div id="cmpPlanOut"></div>
         </div>
-        <div class="small" id="cmpMixNote" hidden>Two or more secrets or covers use the layered mix scheme.</div>
+        <div class="small" id="cmpScheme"></div>
         <div class="small" id="cmpCap"></div>
 
         <div class="row" style="margin-top:14px">
@@ -62,7 +63,7 @@
 
         <button class="primary" id="cmpBtn" disabled>Hide &amp; download</button>
         <div class="out" id="cmpOut"></div>
-        <p class="small" style="margin-top:12px">One secret is a simple hide. Two or more each open with their own password (give one away as a decoy). Two or more covers split the data across them, all needed to rebuild. Combine any of it.</p>
+        <p class="small" style="margin-top:12px">One secret is a simple hide. Two or more each open with their own password (give one away as a decoy). Two or more covers split the data across them, all needed to rebuild. Combine any of it — and mix cover types freely, a photo and a video and a PDF can carry one secret between them. Photos come back as PNG; everything else keeps its own format.</p>
       </div>
     </section>
 
@@ -70,10 +71,10 @@
     <section class="panel" id="panel-reveal">
       <div class="card">
         <h2>Reveal a secret</h2>
-        <p class="hint">Pick the stego photo(s) and a password. Detected automatically.</p>
-        <label>Stego photo(s)</label>
-        <div class="drop" id="revealDrop"><span class="big">🗂️</span>Choose the photo(s)</div>
-        <input type="file" id="revealFile" accept="image/*" multiple hidden />
+        <p class="hint">Pick the stego file(s) and a password. The carrier and method are detected automatically.</p>
+        <label>Stego file(s)</label>
+        <div class="drop" id="revealDrop"><span class="big">🗂️</span>Choose the file(s) — any type. If it was split, pick all the parts.</div>
+        <input type="file" id="revealFile" multiple hidden />
         <label>Password</label>
         <input type="password" id="revealPass" placeholder="The password used to hide it" autocomplete="off" />
         <button class="primary" id="revealBtn" disabled>Reveal</button>
@@ -148,7 +149,7 @@
     <section class="panel" id="panel-keys">
       <div class="card">
         <h2>Key-shares</h2>
-        <p class="hint">Any threshold of shares rebuilds a secret.</p>
+        <p class="hint">Any threshold of shares rebuilds a secret. A shared file comes back under its own name.</p>
         <div class="seg" id="keysSeg">
           <button data-mode="split" class="active">Split</button>
           <button data-mode="combine">Combine</button>

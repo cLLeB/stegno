@@ -24,11 +24,12 @@ use stegno_core::passphrase::estimate_passphrase_strength;
 use stegno_core::payload::{Revealed, Secret};
 use stegno_core::planner::plan_embedding;
 use stegno_core::sanitize::sanitize;
-use stegno_core::sss::{sss_combine, sss_split, SecretShare};
+use stegno_core::sss::SecretShare;
 use stegno_core::structural::scan_structure;
 use stegno_core::visualize::{bit_plane, change_map};
 use stegno_core::{
-    capacity, detect_lsb, embed_advanced, embed_multi, extract, extract_auto, list_methods,
+    capacity, cover_info, detect_lsb, embed_advanced, embed_composite, embed_multi, extract,
+    extract_auto, extract_composite, list_methods, sss_combine_secret, sss_split_secret, ByteChunk,
     Recipient,
 };
 
@@ -41,9 +42,13 @@ USAGE:
     stegno capacity <method> <cover>
     stegno plan <cover> <payload-bytes>
     stegno risk <method> <cover> <payload-bytes>
+    stegno cover <file>
     stegno hide <method> <cover> <out> --pass <P> (--text <T> | --file <path>) [--robust <1-3>] [--compress]
-    stegno multi <cover> <out> --to <pass>:<message> [--to <pass>:<message> ...]
-    stegno reveal <stego> --pass <P> [--method <M>] [--out <path>]
+    stegno multi <cover> <out> (--to <pass>:<message> | --to-file <pass>:<path>) ...
+    stegno compose --cover <path> [--cover <path> ...] --out <prefix>
+                   (--secret <pass>:<text> | --secret-file <pass>:<path>) ...
+                   [--robust <1-3>] [--compress]
+    stegno reveal <stego> [<stego> ...] --pass <P> [--method <M>] [--out <path>]
     stegno analyze <file>
     stegno bitplane <image> <out> [--channel 0-2] [--plane 0-7]
     stegno changemap <cover> <stego> <out>
@@ -55,7 +60,14 @@ USAGE:
     stegno combine <share> <share> ...            (shares look like `1:ab12…`)
 
 NOTES:
-    reveal without --method auto-detects which method hid the data.
+    Covers can be any file: photo, audio, text, document, video, anything.
+    `cover` reports which carrier a file gets and how much it holds.
+    `compose` is the general form — one secret and one cover is a plain hide,
+    several secrets share a cover (each password opens only its own, so one can
+    be handed over as a decoy), several covers split the payload across them
+    (all parts required), and any combination works at once.
+    reveal takes every part of a split, and without --method auto-detects which
+    method hid the data.
     --robust adds Reed-Solomon error correction so the payload survives light
     carrier damage (recompression, resize, scan). Level 1 (small) to 3 (most).
     --compress shrinks the secret before encryption to fit more in a cover.";
@@ -81,6 +93,8 @@ fn run(args: &[String]) -> Result<(), String> {
         "risk" => cmd_risk(&args[1..]),
         "hide" => cmd_hide(&args[1..]),
         "multi" => cmd_multi(&args[1..]),
+        "compose" => cmd_compose(&args[1..]),
+        "cover" => cmd_cover(&args[1..]),
         "reveal" => cmd_reveal(&args[1..]),
         "analyze" => cmd_analyze(&args[1..]),
         "bitplane" => cmd_bitplane(&args[1..]),
@@ -234,6 +248,67 @@ fn cmd_risk(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// A file's own name, for payloads that should keep their identity.
+fn file_name_of(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("payload")
+        .to_string()
+}
+
+/// Read a `Secret` from `--text` or `--file`. Shared by every command that
+/// takes a payload, so a file is never second-class next to a message.
+fn secret_from_flags(args: &[String]) -> Result<Secret, String> {
+    if let Some(text) = flag(args, "--text") {
+        return Ok(Secret::Text {
+            text: text.to_string(),
+        });
+    }
+    if let Some(path) = flag(args, "--file") {
+        return Ok(Secret::File {
+            name: file_name_of(path),
+            bytes: read(path)?,
+        });
+    }
+    Err("provide a secret with --text <T> or --file <path>".into())
+}
+
+/// Parse a `<pass>:<value>` pair, where the value may itself contain colons.
+fn split_spec<'a>(spec: &'a str, flag_name: &str) -> Result<(&'a str, &'a str), String> {
+    spec.split_once(':')
+        .ok_or_else(|| format!("each {flag_name} must look like <pass>:<value>"))
+}
+
+/// Collect entries from repeated `--secret <pass>:<text>` and
+/// `--secret-file <pass>:<path>` flags, so any entry can be text or a file.
+fn entries_from_flags(args: &[String]) -> Result<Vec<Recipient>, String> {
+    let mut entries = Vec::new();
+    for spec in flag_all(args, "--secret") {
+        let (pass, text) = split_spec(&spec, "--secret")?;
+        entries.push(Recipient {
+            secret: Secret::Text {
+                text: text.to_string(),
+            },
+            passphrase: pass.to_string(),
+        });
+    }
+    for spec in flag_all(args, "--secret-file") {
+        let (pass, path) = split_spec(&spec, "--secret-file")?;
+        entries.push(Recipient {
+            secret: Secret::File {
+                name: file_name_of(path),
+                bytes: read(path)?,
+            },
+            passphrase: pass.to_string(),
+        });
+    }
+    if entries.is_empty() {
+        return Err("provide at least one --secret <pass>:<text> or --secret-file <pass>:<path>".into());
+    }
+    Ok(entries)
+}
+
 fn cmd_hide(args: &[String]) -> Result<(), String> {
     let p = positionals(args);
     let (method, cover, out) = match p.as_slice() {
@@ -241,20 +316,7 @@ fn cmd_hide(args: &[String]) -> Result<(), String> {
         _ => return Err("usage: stegno hide <method> <cover> <out> --pass P (--text T | --file F) [--robust N]".into()),
     };
     let pass = flag(args, "--pass").ok_or("missing --pass")?;
-
-    let secret = if let Some(text) = flag(args, "--text") {
-        Secret::Text { text: text.to_string() }
-    } else if let Some(path) = flag(args, "--file") {
-        let bytes = read(path)?;
-        let name = std::path::Path::new(path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("payload")
-            .to_string();
-        Secret::File { name, bytes }
-    } else {
-        return Err("provide a secret with --text <T> or --file <path>".into());
-    };
+    let secret = secret_from_flags(args)?;
 
     let robustness: u8 = match flag(args, "--robust") {
         Some(level) => level.parse().map_err(|_| "--robust must be 1, 2, or 3")?,
@@ -295,46 +357,164 @@ fn cmd_multi(args: &[String]) -> Result<(), String> {
         [c, o] => (*c, *o),
         _ => return Err("usage: stegno multi <cover> <out> --to <pass>:<message> ...".into()),
     };
-    let tos = flag_all(args, "--to");
-    if tos.len() < 2 {
-        return Err("provide at least two --to <pass>:<message> recipients".into());
-    }
-    let mut recipients = Vec::with_capacity(tos.len());
-    for spec in &tos {
-        let (pass, msg) = spec
-            .split_once(':')
-            .ok_or("each --to must look like <pass>:<message>")?;
+    let mut recipients = Vec::new();
+    for spec in flag_all(args, "--to") {
+        let (pass, msg) = split_spec(&spec, "--to")?;
         recipients.push(Recipient {
-            secret: Secret::Text { text: msg.to_string() },
+            secret: Secret::Text {
+                text: msg.to_string(),
+            },
             passphrase: pass.to_string(),
         });
+    }
+    for spec in flag_all(args, "--to-file") {
+        let (pass, path) = split_spec(&spec, "--to-file")?;
+        recipients.push(Recipient {
+            secret: Secret::File {
+                name: file_name_of(path),
+                bytes: read(path)?,
+            },
+            passphrase: pass.to_string(),
+        });
+    }
+    if recipients.len() < 2 {
+        return Err("provide at least two recipients (--to <pass>:<message> or --to-file <pass>:<path>)".into());
     }
     let n = recipients.len();
     let stego = embed_multi(read(cover)?, recipients).map_err(|e| e.to_string())?;
     write(out, &stego)?;
-    println!("hid {n} messages for {n} recipients -> {out} ({} bytes)", stego.len());
+    println!("hid {n} secrets for {n} recipients -> {out} ({} bytes)", stego.len());
+    Ok(())
+}
+
+/// The full composite primitive: any number of secrets across any number of
+/// covers of any medium. This is the command-line twin of the apps' composer.
+fn cmd_compose(args: &[String]) -> Result<(), String> {
+    let covers = flag_all(args, "--cover");
+    if covers.is_empty() {
+        return Err("provide at least one --cover <path>".into());
+    }
+    let out_prefix = flag(args, "--out").ok_or("missing --out <prefix>")?;
+    let entries = entries_from_flags(args)?;
+    let robustness: u8 = match flag(args, "--robust") {
+        Some(level) => level.parse().map_err(|_| "--robust must be 1, 2, or 3")?,
+        None => 0,
+    };
+    let compress = has_flag(args, "--compress");
+
+    let chunks: Vec<ByteChunk> = covers
+        .iter()
+        .map(|p| read(p).map(|bytes| ByteChunk { bytes }))
+        .collect::<Result<_, _>>()?;
+    let n_entries = entries.len();
+    let stegos = embed_composite(chunks, entries, robustness, compress).map_err(|e| e.to_string())?;
+
+    for (i, (chunk, cover_path)) in stegos.iter().zip(covers.iter()).enumerate() {
+        // Name each output for the carrier it came from: an appended-region
+        // carrier keeps its container (a PDF stays a PDF), an image becomes PNG.
+        let info = cover_info(chunk.bytes.clone()).map_err(|e| e.to_string())?;
+        let path = if info.preserves_container {
+            let ext = std::path::Path::new(cover_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or(&info.extension)
+                .to_string();
+            part_path(out_prefix, i, stegos.len(), &ext)
+        } else {
+            part_path(out_prefix, i, stegos.len(), &info.extension)
+        };
+        write(&path, &chunk.bytes)?;
+        println!("  {path} ({} bytes, {} carrier)", chunk.bytes.len(), info.kind);
+    }
+    println!(
+        "composed {n_entries} secret(s) across {} cover(s){}",
+        stegos.len(),
+        if stegos.len() > 1 { " — all parts are required to rebuild" } else { "" }
+    );
+    Ok(())
+}
+
+/// `prefix.ext` for a single output, `prefix-1.ext` … when there are several.
+fn part_path(prefix: &str, index: usize, total: usize, ext: &str) -> String {
+    if total == 1 {
+        format!("{prefix}.{ext}")
+    } else {
+        format!("{prefix}-{}.{ext}", index + 1)
+    }
+}
+
+/// Report what the engine makes of a cover: its carrier and usable capacity.
+fn cmd_cover(args: &[String]) -> Result<(), String> {
+    let p = positionals(args);
+    let path = match p.as_slice() {
+        [c] => *c,
+        _ => return Err("usage: stegno cover <file>".into()),
+    };
+    let info = cover_info(read(path)?).map_err(|e| e.to_string())?;
+    println!("carrier       : {}", info.kind);
+    println!("container     : {}", info.format);
+    println!("slots         : {}", info.slots);
+    println!("capacity      : {} bytes", info.capacity_bytes);
+    println!(
+        "output        : {}",
+        if info.preserves_container {
+            "keeps this file's own container".to_string()
+        } else {
+            format!("re-encoded as .{}", info.extension)
+        }
+    );
     Ok(())
 }
 
 fn cmd_reveal(args: &[String]) -> Result<(), String> {
-    let p = positionals(args);
-    let stego = match p.as_slice() {
-        [s] => *s,
-        _ => return Err("usage: stegno reveal <stego> --pass P [--method M] [--out FILE]".into()),
-    };
+    let paths = positionals(args);
+    if paths.is_empty() {
+        return Err("usage: stegno reveal <stego> [<stego> ...] --pass P [--method M] [--out FILE]".into());
+    }
     let pass = flag(args, "--pass").ok_or("missing --pass")?;
-    let stego_bytes = read(stego)?;
 
+    // Several files means a composite split: every part is needed, and only the
+    // composite reader knows how a frame was spread across them.
+    if paths.len() > 1 {
+        let chunks: Vec<ByteChunk> = paths
+            .iter()
+            .map(|p| read(p).map(|bytes| ByteChunk { bytes }))
+            .collect::<Result<_, _>>()?;
+        let revealed =
+            extract_composite(chunks, pass.to_string()).map_err(|e| e.to_string())?;
+        return report_revealed(args, String::new(), revealed);
+    }
+
+    let stego_bytes = read(paths[0])?;
     let (method_id, revealed) = match flag(args, "--method") {
         Some(m) => (
             m.to_string(),
             extract(m.to_string(), stego_bytes, pass.to_string()).map_err(|e| e.to_string())?,
         ),
         None => {
-            let found = extract_auto(stego_bytes, pass.to_string()).map_err(|e| e.to_string())?;
-            (found.method_id, found.revealed)
+            // A single file may still be a one-cover composite (a decoy or a
+            // multi-recipient hide), which `extract_auto` covers via its region
+            // fallbacks — but try the composite reader too before giving up.
+            let found =
+                extract_auto(stego_bytes.clone(), pass.to_string()).map_err(|e| e.to_string())?;
+            match found.revealed {
+                Revealed::None => (
+                    String::new(),
+                    extract_composite(
+                        vec![ByteChunk { bytes: stego_bytes }],
+                        pass.to_string(),
+                    )
+                    .map_err(|e| e.to_string())?,
+                ),
+                revealed => (found.method_id, revealed),
+            }
         }
     };
+    report_revealed(args, method_id, revealed)
+}
+
+/// Print or save whatever an extraction produced.
+fn report_revealed(args: &[String], method_id: String, revealed: Revealed) -> Result<(), String> {
 
     match revealed {
         Revealed::None => Err("no hidden data found".into()),
@@ -414,17 +594,9 @@ fn from_hex(s: &str) -> Result<Vec<u8>, String> {
         .collect()
 }
 
-fn secret_from_flags(args: &[String]) -> Result<Vec<u8>, String> {
-    if let Some(text) = flag(args, "--text") {
-        Ok(text.as_bytes().to_vec())
-    } else if let Some(path) = flag(args, "--file") {
-        read(path)
-    } else {
-        Err("provide a secret with --text <T> or --file <path>".into())
-    }
-}
-
 fn cmd_split(args: &[String]) -> Result<(), String> {
+    // Split the *typed* secret, so a shared file recombines under its own name
+    // instead of as anonymous bytes the recipient has to guess at.
     let secret = secret_from_flags(args)?;
     let k: u8 = flag(args, "--threshold")
         .ok_or("missing --threshold")?
@@ -434,7 +606,7 @@ fn cmd_split(args: &[String]) -> Result<(), String> {
         .ok_or("missing --shares")?
         .parse()
         .map_err(|_| "--shares must be a number")?;
-    let shares = sss_split(secret, k, n).map_err(|e| e.to_string())?;
+    let shares = sss_split_secret(secret, k, n).map_err(|e| e.to_string())?;
     eprintln!("any {k} of these {n} shares reconstruct the secret:");
     for s in shares {
         println!("{}:{}", s.x, to_hex(&s.y));
@@ -453,19 +625,8 @@ fn cmd_combine(args: &[String]) -> Result<(), String> {
         let x: u8 = x.parse().map_err(|_| "bad share x-coordinate")?;
         shares.push(SecretShare { x, y: from_hex(y)? });
     }
-    let secret = sss_combine(shares).map_err(|e| e.to_string())?;
-    match std::str::from_utf8(&secret) {
-        Ok(text) => println!("{text}"),
-        Err(_) => {
-            if let Some(out) = flag(args, "--out") {
-                write(out, &secret)?;
-                eprintln!("recovered {} bytes -> {out}", secret.len());
-            } else {
-                println!("{}", to_hex(&secret));
-            }
-        }
-    }
-    Ok(())
+    let revealed = sss_combine_secret(shares).map_err(|e| e.to_string())?;
+    report_revealed(args, String::new(), revealed)
 }
 
 /// Recursively collect file paths under `dir`.
@@ -594,6 +755,7 @@ fn cmd_kdftime() -> Result<(), String> {
     println!("Argon2id: {} KiB, {} iterations", b.memory_kib, b.iterations);
     println!("time    : {:.0} ms/derivation", b.millis);
     println!("verdict : {}", b.verdict.to_uppercase());
+    println!("meaning : {}", b.explanation);
     Ok(())
 }
 

@@ -29,6 +29,9 @@ pub struct MethodRecommendation {
     /// 0 = statistically detectable, 1 = randomized/spatial, 2 = adaptive or
     /// transform-domain (hardest to detect).
     pub stealth_tier: u8,
+    /// Whether the output is still the cover you supplied. `false` means the
+    /// method synthesizes a new carrier and discards your file.
+    pub preserves_cover: bool,
     /// A one-line rationale for the ranking.
     pub note: String,
 }
@@ -37,6 +40,10 @@ pub struct MethodRecommendation {
 /// security notes. Unknown ids default to tier 1.
 fn stealth_tier(id: &str) -> u8 {
     match id {
+        // Format-native carriers: the file stays valid and its real content is
+        // untouched, but the payload sits in a named field a scanner can read
+        // straight out. Quiet to a person, obvious to a tool.
+        "zip_comment" | "pdf_object" | "stl_attrib" | "mp4_free" | "mp3_id3" => 1,
         // Sequential LSB and 2-bit LSB have clear statistical signatures.
         "lsb_image" | "lsb_high" | "append_eof" | "png_text" | "polyglot" | "whitespace" => 0,
         // Randomized / spatial / basic text channels.
@@ -81,14 +88,16 @@ pub fn plan_embedding(cover: Vec<u8>, payload_len: u64) -> Vec<MethodRecommendat
             1.0
         };
         let tier = stealth_tier(m.id());
+        let preserves = m.preserves_cover();
         let note = if !fits {
             format!("too small — needs {payload_len} bytes, holds {usable}")
-        } else {
+        } else if !preserves {
             format!(
-                "{}; {:.0}% full",
-                tier_label(tier),
-                fill_ratio * 100.0
+                "{}; replaces your cover with generated text",
+                tier_label(tier)
             )
+        } else {
+            format!("{}; {:.0}% full", tier_label(tier), fill_ratio * 100.0)
         };
 
         recs.push(MethodRecommendation {
@@ -99,6 +108,7 @@ pub fn plan_embedding(cover: Vec<u8>, payload_len: u64) -> Vec<MethodRecommendat
             fits,
             fill_ratio,
             stealth_tier: tier,
+            preserves_cover: preserves,
             note,
         });
     }
@@ -107,6 +117,10 @@ pub fn plan_embedding(cover: Vec<u8>, payload_len: u64) -> Vec<MethodRecommendat
         // Fitting methods first.
         b.fits
             .cmp(&a.fits)
+            // Then methods that actually keep your cover. A generative method
+            // can score top marks for stealth while handing back word-salad
+            // instead of your document — never the right default.
+            .then(b.preserves_cover.cmp(&a.preserves_cover))
             // Then higher stealth tier.
             .then(b.stealth_tier.cmp(&a.stealth_tier))
             // Then lower fill ratio (stealthier embedding rate).
@@ -153,9 +167,14 @@ mod tests {
     #[test]
     fn prefers_stealthier_methods_among_fitting() {
         let recs = plan_embedding(png(256, 256), 50);
-        let fitting: Vec<_> = recs.iter().filter(|r| r.fits).collect();
+        // Stealth only orders methods that keep your cover; a generative method
+        // is ranked below all of them however stealthy it scores, so the tier
+        // ordering is checked within that group rather than across everything.
+        let fitting: Vec<_> = recs
+            .iter()
+            .filter(|r| r.fits && r.preserves_cover)
+            .collect();
         assert!(fitting.len() >= 2);
-        // Stealth tier is non-increasing across the fitting prefix.
         for w in fitting.windows(2) {
             assert!(
                 w[0].stealth_tier >= w[1].stealth_tier,
@@ -168,6 +187,16 @@ mod tests {
         }
         // lsb_image (detectable, tier 0) must not be the top pick when better fit.
         assert_ne!(recs[0].method_id, "lsb_image");
+    }
+
+    #[test]
+    fn cover_preserving_methods_outrank_generative_ones() {
+        let recs = plan_embedding(png(256, 256), 50);
+        let mimic = recs.iter().position(|r| r.method_id == "mimic_words");
+        let seeded = recs.iter().position(|r| r.method_id == "lsb_seeded");
+        if let (Some(m), Some(s)) = (mimic, seeded) {
+            assert!(s < m, "a real hide must outrank generated word-salad");
+        }
     }
 
     #[test]
@@ -191,5 +220,99 @@ mod tests {
         // A PNG cover: audio (wav_lsb) can't parse it, so it shouldn't appear.
         let recs = plan_embedding(png(64, 64), 10);
         assert!(recs.iter().all(|r| r.method_id != "wav_lsb"));
+    }
+
+    /// A PDF-shaped binary blob — a cover with no image, audio or text reading.
+    fn pdf() -> Vec<u8> {
+        let mut v = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n".to_vec();
+        v.extend((0..20_000u32).map(|i| (i.wrapping_mul(2654435761) >> 16) as u8));
+        v.extend_from_slice(b"\n%%EOF\n");
+        v
+    }
+
+    /// The regression that mattered: every method the planner ranks must survive
+    /// a real embed and extract against the very cover it was ranked for.
+    ///
+    /// The planner used to trust `Method::capacity` alone, and several methods
+    /// returned a fixed capacity while ignoring the cover — so a PDF was told
+    /// that text and generative methods applied to it. The top suggestion was
+    /// `mimic_words`, which discards the cover and emits word-salad.
+    #[test]
+    fn every_recommendation_actually_round_trips() {
+        use crate::payload::{Revealed, Secret};
+
+        let covers: Vec<(&str, Vec<u8>)> = vec![
+            ("png", png(160, 160)),
+            ("pdf", pdf()),
+            ("text", "a memo about nothing at all.\n".repeat(400).into_bytes()),
+        ];
+
+        for (label, cover) in covers {
+            let recs = plan_embedding(cover.clone(), 200);
+            let fitting: Vec<_> = recs.iter().filter(|r| r.fits).collect();
+            assert!(!fitting.is_empty(), "{label}: nothing recommended at all");
+
+            for r in fitting {
+                let secret = Secret::Text { text: "x".repeat(200) };
+                let stego = crate::embed(
+                    r.method_id.clone(),
+                    cover.clone(),
+                    secret,
+                    "pw".into(),
+                )
+                .unwrap_or_else(|e| {
+                    panic!("{label}: recommended `{}` but embedding failed: {e}", r.method_id)
+                });
+
+                match crate::extract(r.method_id.clone(), stego, "pw".into()) {
+                    Ok(Revealed::Text { text }) => assert_eq!(text.len(), 200),
+                    other => panic!(
+                        "{label}: recommended `{}` but it did not round-trip: {other:?}",
+                        r.method_id
+                    ),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_top_pick_for_a_binary_cover_keeps_the_cover() {
+        // Hiding in a PDF must hand back a PDF, not generated prose.
+        let cover = pdf();
+        let recs = plan_embedding(cover.clone(), 3000);
+        let top = &recs[0];
+        assert!(top.fits, "top pick must fit");
+        assert!(
+            top.preserves_cover,
+            "top pick `{}` throws the cover away",
+            top.method_id
+        );
+        assert_ne!(top.method_id, "mimic_words");
+
+        // ...and the file it returns still starts with the original bytes.
+        let stego = crate::embed(
+            top.method_id.clone(),
+            cover.clone(),
+            crate::payload::Secret::Text { text: "hi".into() },
+            "pw".into(),
+        )
+        .unwrap();
+        assert!(
+            stego.starts_with(b"%PDF-1.7"),
+            "`{}` did not return a PDF",
+            top.method_id
+        );
+    }
+
+    #[test]
+    fn text_methods_decline_binary_covers() {
+        // These promise capacity only where `embed` can honour it.
+        let recs = plan_embedding(pdf(), 100);
+        for text_only in ["zero_width", "unicode_tags", "whitespace"] {
+            assert!(
+                recs.iter().all(|r| r.method_id != text_only),
+                "{text_only} should not be offered for a binary cover"
+            );
+        }
     }
 }

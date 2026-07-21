@@ -30,7 +30,11 @@ impl Method for Whitespace {
         Media::Text
     }
 
-    fn capacity(&self, _cover: &[u8]) -> Result<Capacity, StegnoError> {
+    fn capacity(&self, cover: &[u8]) -> Result<Capacity, StegnoError> {
+        // A trailing whitespace run only hides inside text. Appended to a binary
+        // cover it is merely conspicuous trailing bytes, and `append_eof` does
+        // that job honestly — so decline rather than advertise capacity here.
+        std::str::from_utf8(cover).map_err(|_| StegnoError::UnsupportedFormat)?;
         Ok(Capacity {
             usable_bytes: SOFT_CAPACITY.saturating_sub(payload::overhead() as u64),
         })

@@ -14,12 +14,17 @@ use crate::methods::lsb_image::LsbImage;
 use crate::methods::lsb_matching::LsbMatching;
 use crate::methods::lsb_seeded::LsbSeeded;
 use crate::methods::lsbmr::Lsbmr;
+use crate::methods::mp3_id3::Mp3Id3;
+use crate::methods::mp4_free::Mp4Free;
+use crate::methods::pdf_object::PdfObject;
 use crate::methods::png_text::PngText;
 use crate::methods::pvd::Pvd;
+use crate::methods::stl_attrib::StlAttrib;
 use crate::methods::unicode_tags::UnicodeTags;
 use crate::methods::wav_lsb::WavLsb;
 use crate::methods::whitespace::Whitespace;
 use crate::methods::zero_width::ZeroWidth;
+use crate::methods::zip_comment::ZipComment;
 
 /// All methods the engine knows about.
 pub fn registry() -> Vec<Box<dyn Method>> {
@@ -46,6 +51,14 @@ pub fn registry() -> Vec<Box<dyn Method>> {
         Box::new(Hill),
         Box::new(MimicWords),
         Box::new(Polyglot),
+        // Format-native carriers. Each exploits slack the format itself defines
+        // as ignorable, so the file stays valid and its real content untouched
+        // — where `append_eof` would just staple bytes past the end.
+        Box::new(ZipComment),
+        Box::new(PdfObject),
+        Box::new(StlAttrib),
+        Box::new(Mp4Free),
+        Box::new(Mp3Id3),
     ]
 }
 

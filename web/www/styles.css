@@ -210,6 +210,11 @@ button.rec .small { flex-basis: 100%; }
 .stat:last-child { border-bottom: 0; }
 .stat span { color: var(--muted); }
 
+/* A control group that doesn't apply to the current selection. Dimmed and
+   inert, but still visible — silently removing controls reads as a bug. */
+.inactive { opacity: .45; }
+.inactive select, .inactive button { cursor: not-allowed; }
+
 .meter { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin-top: 10px; }
 .meter > span { display: block; height: 100%; border-radius: 999px; transition: width .3s cubic-bezier(.2,.7,.3,1), background .3s; }
 

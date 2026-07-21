@@ -82,6 +82,37 @@ pub fn capacity(method_id: String, cover: Vec<u8>) -> Result<f64, JsValue> {
         .map_err(err)
 }
 
+/// Inspect a cover as a carrier: `{ kind, extension, mime, preservesContainer,
+/// slots, capacityBytes }`. The UI uses this to name the stego file correctly —
+/// a photo is re-encoded to PNG, while a PDF, video or audio cover keeps its own
+/// container and extension.
+#[wasm_bindgen(js_name = coverInfo)]
+pub fn cover_info(cover: Vec<u8>) -> Result<JsValue, JsValue> {
+    #[derive(Serialize)]
+    struct CoverInfoJs {
+        kind: String,
+        /// The container the bytes actually are — name output files from this.
+        format: String,
+        extension: String,
+        mime: String,
+        #[serde(rename = "preservesContainer")]
+        preserves_container: bool,
+        slots: f64,
+        #[serde(rename = "capacityBytes")]
+        capacity_bytes: f64,
+    }
+    let i = stegno_core::cover_info(cover).map_err(err)?;
+    to_js(&CoverInfoJs {
+        kind: i.kind,
+        format: i.format,
+        extension: i.extension,
+        mime: i.mime,
+        preserves_container: i.preserves_container,
+        slots: i.slots as f64,
+        capacity_bytes: i.capacity_bytes as f64,
+    })
+}
+
 // --- hide ------------------------------------------------------------------
 
 #[wasm_bindgen(js_name = embedText)]
@@ -126,24 +157,17 @@ pub fn embed_advanced_text(
     .map_err(err)
 }
 
-/// Hide up to 8 messages for 8 recipients in one image. `recipients` is a JS
-/// array of `{ text, passphrase }`.
-#[wasm_bindgen(js_name = embedMultiText)]
-pub fn embed_multi_text(cover: Vec<u8>, recipients: JsValue) -> Result<Vec<u8>, JsValue> {
-    #[derive(serde::Deserialize)]
-    struct Rec {
-        text: String,
-        passphrase: String,
-    }
-    let recs: Vec<Rec> = serde_wasm_bindgen::from_value(recipients)
+/// Hide up to 8 independent secrets for 8 recipients in one cover of any medium.
+/// `recipients` is a JS array of `{ passphrase, text? , files? }` — so a
+/// recipient's secret can be a message, a file, or several files.
+#[wasm_bindgen(js_name = embedMulti)]
+pub fn embed_multi(cover: Vec<u8>, recipients: JsValue) -> Result<Vec<u8>, JsValue> {
+    let raw: Vec<EntryIn> = serde_wasm_bindgen::from_value(recipients)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let core: Vec<Recipient> = recs
+    let core: Vec<Recipient> = raw
         .into_iter()
-        .map(|r| Recipient {
-            secret: Secret::Text { text: r.text },
-            passphrase: r.passphrase,
-        })
-        .collect();
+        .map(entry_to_recipient)
+        .collect::<Result<_, _>>()?;
     stegno_core::embed_multi(cover, core).map_err(err)
 }
 
@@ -336,22 +360,24 @@ pub fn decoy_capacity(cover: Vec<u8>) -> Result<f64, JsValue> {
     stegno_core::decoy_capacity(cover).map(|c| c as f64).map_err(err)
 }
 
-/// Hide a real message and a decoy message in one image, each under its own
-/// passphrase. Revealing with the decoy passphrase shows only the decoy.
-#[wasm_bindgen(js_name = embedWithDecoyText)]
-pub fn embed_with_decoy_text(
-    cover: Vec<u8>,
-    real_text: String,
-    real_passphrase: String,
-    decoy_text: String,
-    decoy_passphrase: String,
-) -> Result<Vec<u8>, JsValue> {
+/// Hide a real secret and a decoy secret in one cover of any medium, each under
+/// its own passphrase. Revealing with the decoy passphrase shows only the decoy.
+/// `real` and `decoy` are `{ passphrase, text? , files? }`, so either side can
+/// be a message, a file, or several files.
+#[wasm_bindgen(js_name = embedWithDecoy)]
+pub fn embed_with_decoy(cover: Vec<u8>, real: JsValue, decoy: JsValue) -> Result<Vec<u8>, JsValue> {
+    let real: EntryIn =
+        serde_wasm_bindgen::from_value(real).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let decoy: EntryIn =
+        serde_wasm_bindgen::from_value(decoy).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let real = entry_to_recipient(real)?;
+    let decoy = entry_to_recipient(decoy)?;
     stegno_core::embed_with_decoy(
         cover,
-        Secret::Text { text: real_text },
-        real_passphrase,
-        Secret::Text { text: decoy_text },
-        decoy_passphrase,
+        real.secret,
+        real.passphrase,
+        decoy.secret,
+        decoy.passphrase,
     )
     .map_err(err)
 }
@@ -365,19 +391,21 @@ fn from_js_bufs(v: JsValue) -> Result<Vec<Vec<u8>>, JsValue> {
 
 /// Spread one secret across N covers; every resulting stego is required to
 /// rebuild it. Returns a JS array of byte arrays (one per cover).
-#[wasm_bindgen(js_name = embedSplitText)]
-pub fn embed_split_text(
+#[wasm_bindgen(js_name = embedSplit)]
+pub fn embed_split(
     method_id: String,
     covers: JsValue,
-    text: String,
+    entry: JsValue,
     passphrase: String,
 ) -> Result<JsValue, JsValue> {
     let chunks: Vec<stegno_core::ByteChunk> = from_js_bufs(covers)?
         .into_iter()
         .map(|bytes| stegno_core::ByteChunk { bytes })
         .collect();
-    let out = stegno_core::embed_split(method_id, chunks, Secret::Text { text }, passphrase)
-        .map_err(err)?;
+    let entry: EntryIn =
+        serde_wasm_bindgen::from_value(entry).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let secret = entry_to_recipient(entry)?.secret;
+    let out = stegno_core::embed_split(method_id, chunks, secret, passphrase).map_err(err)?;
     let bytes: Vec<Vec<u8>> = out.into_iter().map(|c| c.bytes).collect();
     to_js(&bytes)
 }
@@ -421,13 +449,41 @@ pub fn sss_split(secret: Vec<u8>, threshold: u8, shares: u8) -> Result<JsValue, 
 /// Reconstruct a secret from a JS array of `{ x, y }` shares.
 #[wasm_bindgen(js_name = sssCombine)]
 pub fn sss_combine(shares: JsValue) -> Result<Vec<u8>, JsValue> {
+    stegno_core::sss::sss_combine(shares_from_js(shares)?).map_err(err)
+}
+
+fn shares_from_js(shares: JsValue) -> Result<Vec<stegno_core::sss::SecretShare>, JsValue> {
     let ins: Vec<ShareJs> = serde_wasm_bindgen::from_value(shares)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let core: Vec<stegno_core::sss::SecretShare> = ins
+    Ok(ins
         .into_iter()
         .map(|s| stegno_core::sss::SecretShare { x: s.x, y: s.y })
+        .collect())
+}
+
+/// Split a **typed** secret into shares. `secret` is `{ text? , files? }` — no
+/// passphrase, because Shamir shares are not passphrase-sealed. Splitting a file
+/// this way recombines it under its own name instead of as anonymous bytes.
+#[wasm_bindgen(js_name = sssSplitSecret)]
+pub fn sss_split_secret(secret: JsValue, threshold: u8, shares: u8) -> Result<JsValue, JsValue> {
+    let input: SecretIn =
+        serde_wasm_bindgen::from_value(secret).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let secret = input.into_secret()?;
+    let v: Vec<ShareJs> = stegno_core::sss_split_secret(secret, threshold, shares)
+        .map_err(err)?
+        .into_iter()
+        .map(|s| ShareJs { x: s.x, y: s.y })
         .collect();
-    stegno_core::sss::sss_combine(core).map_err(err)
+    to_js(&v)
+}
+
+/// Recombine typed shares, restoring the secret's kind and any filenames.
+/// Returns `{ kind, ... }` like [`extract`]. Untyped shares still recombine, as
+/// a file named `recovered.bin`.
+#[wasm_bindgen(js_name = sssCombineSecret)]
+pub fn sss_combine_secret(shares: JsValue) -> Result<JsValue, JsValue> {
+    let r = stegno_core::sss_combine_secret(shares_from_js(shares)?).map_err(err)?;
+    to_js(&RevealedJs::from(r))
 }
 
 // --- more analysis ---------------------------------------------------------
@@ -529,12 +585,16 @@ pub fn benchmark_kdf() -> Result<JsValue, JsValue> {
         memory_kib: u32,
         iterations: u32,
         verdict: String,
+        /// Plain-language reading — a bare "weak" tells the user nothing they
+        /// can act on.
+        explanation: String,
     }
     let b = stegno_core::crypto::benchmark_kdf();
     to_js(&B {
         millis: b.millis,
         memory_kib: b.memory_kib,
         iterations: b.iterations,
+        explanation: b.explanation,
         verdict: b.verdict,
     })
 }
@@ -547,8 +607,21 @@ struct FileIn {
     bytes: Vec<u8>,
 }
 
-/// One composite entry from JS: a passphrase plus exactly one of `text` or
-/// `files` (one or many). `{ passphrase, text }` or `{ passphrase, files: [{name,bytes}] }`.
+/// A secret from JS with no passphrase attached: exactly one of `text` or
+/// `files`. Used by key-shares, which are not passphrase-sealed.
+///
+/// Deliberately a sibling of [`EntryIn`] with the fields spelled out rather than
+/// a `#[serde(flatten)]` field inside it: flattening routes serde through a
+/// generic map deserializer, which loses serde_wasm_bindgen's direct
+/// `Uint8Array` → `Vec<u8>` path and fails on every byte array.
+#[derive(serde::Deserialize)]
+struct SecretIn {
+    text: Option<String>,
+    files: Option<Vec<FileIn>>,
+}
+
+/// One composite entry from JS: a secret plus the passphrase that opens it.
+/// `{ passphrase, text }` or `{ passphrase, files: [{ name, bytes }] }`.
 #[derive(serde::Deserialize)]
 struct EntryIn {
     passphrase: String,
@@ -556,25 +629,43 @@ struct EntryIn {
     files: Option<Vec<FileIn>>,
 }
 
+/// Turn the `text`/`files` pair every JS secret arrives as into a core `Secret`.
+fn build_secret(text: Option<String>, files: Option<Vec<FileIn>>) -> Result<Secret, JsValue> {
+    if let Some(text) = text {
+        return Ok(Secret::Text { text });
+    }
+    let mut files = files
+        .filter(|f| !f.is_empty())
+        .ok_or_else(|| JsValue::from_str("each secret needs text or files"))?;
+    if files.len() == 1 {
+        let f = files.remove(0);
+        return Ok(Secret::File {
+            name: f.name,
+            bytes: f.bytes,
+        });
+    }
+    Ok(Secret::Files {
+        files: files
+            .into_iter()
+            .map(|f| FileRecord {
+                name: f.name,
+                bytes: f.bytes,
+            })
+            .collect(),
+    })
+}
+
+impl SecretIn {
+    fn into_secret(self) -> Result<Secret, JsValue> {
+        build_secret(self.text, self.files)
+    }
+}
+
 fn entry_to_recipient(e: EntryIn) -> Result<Recipient, JsValue> {
-    let secret = if let Some(text) = e.text {
-        Secret::Text { text }
-    } else if let Some(mut files) = e.files.filter(|f| !f.is_empty()) {
-        if files.len() == 1 {
-            let f = files.remove(0);
-            Secret::File { name: f.name, bytes: f.bytes }
-        } else {
-            Secret::Files {
-                files: files
-                    .into_iter()
-                    .map(|f| FileRecord { name: f.name, bytes: f.bytes })
-                    .collect(),
-            }
-        }
-    } else {
-        return Err(JsValue::from_str("each entry needs text or files"));
-    };
-    Ok(Recipient { secret, passphrase: e.passphrase })
+    Ok(Recipient {
+        secret: build_secret(e.text, e.files)?,
+        passphrase: e.passphrase,
+    })
 }
 
 /// Single-cover hide with a chosen method and full options, but a secret that

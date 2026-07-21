@@ -11,15 +11,9 @@
 
 use crate::image_io::{decode_rgba, encode_png, RgbaImage};
 use crate::payload;
+use crate::region;
 use crate::seed::{self, Slot};
 use crate::StegnoError;
-
-/// Fixed, non-secret seed defining the decoy "master ranking". Splitting this
-/// public permutation in half yields two disjoint position sets — one per slot
-/// — so the real and decoy payloads can never collide. It is a constant (not
-/// key-derived) precisely so the extractor can reconstruct the regions with
-/// only the passphrase.
-const DECOY_MASTER_SEED: [u8; 32] = *b"stegno/decoy/master-ranking/v1!!";
 
 /// Colour channels used as carriers: R, G, B (alpha is left untouched).
 pub const CHANNELS_PER_PIXEL: usize = 3;
@@ -117,53 +111,17 @@ pub fn decoy_slot_capacity_bytes(width: u32, height: u32) -> u64 {
     ((region / 8) as u64).saturating_sub(payload::overhead() as u64)
 }
 
-/// Channel-slot visiting order for one decoy slot.
+/// Channel-slot visiting order for one decoy slot — the image-shaped view of a
+/// two-way [`crate::region::Region`].
 ///
-/// The fixed [`DECOY_MASTER_SEED`] permutation is split in half — `Primary`
-/// takes the first half, `Decoy` the second — guaranteeing the two slots use
-/// disjoint positions. Within the half, the visiting order is the
-/// passphrase-keyed permutation, so the payload is still scattered and only the
-/// holder of the right passphrase reconstructs it.
-pub fn decoy_region_order(
-    width: u32,
-    height: u32,
-    slot: Slot,
-    key_seed: &[u8; 32],
-) -> Vec<u32> {
-    let n = total_slots(width, height);
-    if n == 0 {
-        return Vec::new();
-    }
-    let master = seed::permutation(n, &DECOY_MASTER_SEED);
-    let half = n / 2;
-    let region: &[u32] = match slot {
-        Slot::Primary => &master[..half],
-        Slot::Decoy => &master[half..],
-    };
-    seed::permutation(region.len(), key_seed)
-        .into_iter()
-        .map(|i| region[i as usize])
-        .collect()
+/// Materializes the region into a slice, so it is only for callers that need
+/// one; the composite paths index a `Region` directly and never allocate.
+pub fn decoy_region_order(width: u32, height: u32, slot: Slot, key_seed: &[u8; 32]) -> Vec<u32> {
+    region_order(width, height, region::decoy_index(slot), 2, key_seed)
 }
 
-/// Byte-range `[start, end)` of the master permutation belonging to region
-/// `index` of `count` equal partitions. Multiplying before dividing keeps the
-/// partitions gap-free and exhaustive even when `n` isn't a multiple of `count`.
-pub fn region_bounds(n: usize, index: u32, count: u32) -> (usize, usize) {
-    let count = count.max(1) as usize;
-    let index = index as usize;
-    let start = index * n / count;
-    let end = (index + 1) * n / count;
-    (start, end.min(n))
-}
-
-/// Channel-slot visiting order for region `index` of `count` disjoint partitions.
-///
-/// Generalizes [`decoy_region_order`] (which is the `count == 2` case) to N-way
-/// splits: the fixed [`DECOY_MASTER_SEED`] permutation is cut into `count` equal
-/// contiguous regions — guaranteeing disjoint positions across recipients — and
-/// within a region the visiting order is the passphrase-keyed permutation, so
-/// each recipient's payload is scattered and reconstructable only with their key.
+/// Channel-slot visiting order for region `index` of `count` disjoint partitions
+/// — the image-shaped view of [`crate::region::Region`].
 pub fn region_order(
     width: u32,
     height: u32,
@@ -171,24 +129,13 @@ pub fn region_order(
     count: u32,
     key_seed: &[u8; 32],
 ) -> Vec<u32> {
-    let n = total_slots(width, height);
-    if n == 0 || count == 0 || index >= count {
-        return Vec::new();
-    }
-    let master = seed::permutation(n, &DECOY_MASTER_SEED);
-    let (start, end) = region_bounds(n, index, count);
-    let region = &master[start..end];
-    seed::permutation(region.len(), key_seed)
-        .into_iter()
-        .map(|i| region[i as usize])
-        .collect()
+    let master = region::Master::new(total_slots(width, height));
+    region::to_vec(&master.region(index, count, key_seed))
 }
 
 /// Usable payload bytes in one region when the image is split `count` ways.
 pub fn region_capacity_bytes(width: u32, height: u32, count: u32) -> u64 {
-    let n = total_slots(width, height);
-    let per_region = n / count.max(1) as usize;
-    ((per_region / 8) as u64).saturating_sub(payload::overhead() as u64)
+    region::capacity_bytes(total_slots(width, height), count)
 }
 
 /// Overwrite the LSB of `value` with `bit` (classic LSB replacement).
