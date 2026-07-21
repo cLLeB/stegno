@@ -5,17 +5,26 @@ use crate::methods::adaptive_cost::AdaptiveCost;
 use crate::methods::append_eof::AppendEof;
 use crate::methods::dwt_haar::DwtHaar;
 use crate::methods::edge_adaptive::EdgeAdaptive;
+use crate::methods::hill::Hill;
 use crate::methods::jpeg::{JpegF5, JpegJsteg, JpegMc, JpegOutguess};
 use crate::methods::mimic_words::MimicWords;
 use crate::methods::polyglot::Polyglot;
+use crate::methods::lsb_high::LsbHigh;
 use crate::methods::lsb_image::LsbImage;
 use crate::methods::lsb_matching::LsbMatching;
 use crate::methods::lsb_seeded::LsbSeeded;
+use crate::methods::lsbmr::Lsbmr;
+use crate::methods::mp3_id3::Mp3Id3;
+use crate::methods::mp4_free::Mp4Free;
+use crate::methods::pdf_object::PdfObject;
 use crate::methods::png_text::PngText;
 use crate::methods::pvd::Pvd;
+use crate::methods::stl_attrib::StlAttrib;
+use crate::methods::unicode_tags::UnicodeTags;
 use crate::methods::wav_lsb::WavLsb;
 use crate::methods::whitespace::Whitespace;
 use crate::methods::zero_width::ZeroWidth;
+use crate::methods::zip_comment::ZipComment;
 
 /// All methods the engine knows about.
 pub fn registry() -> Vec<Box<dyn Method>> {
@@ -23,9 +32,12 @@ pub fn registry() -> Vec<Box<dyn Method>> {
         Box::new(LsbImage),
         Box::new(LsbSeeded),
         Box::new(LsbMatching),
+        Box::new(Lsbmr),
+        Box::new(LsbHigh),
         Box::new(EdgeAdaptive),
         Box::new(Pvd),
         Box::new(ZeroWidth),
+        Box::new(UnicodeTags),
         Box::new(Whitespace),
         Box::new(AppendEof),
         Box::new(PngText),
@@ -36,8 +48,17 @@ pub fn registry() -> Vec<Box<dyn Method>> {
         Box::new(JpegOutguess),
         Box::new(JpegMc),
         Box::new(AdaptiveCost),
+        Box::new(Hill),
         Box::new(MimicWords),
         Box::new(Polyglot),
+        // Format-native carriers. Each exploits slack the format itself defines
+        // as ignorable, so the file stays valid and its real content untouched
+        // — where `append_eof` would just staple bytes past the end.
+        Box::new(ZipComment),
+        Box::new(PdfObject),
+        Box::new(StlAttrib),
+        Box::new(Mp4Free),
+        Box::new(Mp3Id3),
     ]
 }
 

@@ -39,7 +39,10 @@ impl Method for Polyglot {
         Media::Image // output still opens as the cover image
     }
 
-    fn capacity(&self, _cover: &[u8]) -> Result<Capacity, StegnoError> {
+    fn capacity(&self, cover: &[u8]) -> Result<Capacity, StegnoError> {
+        // The whole point is a file valid as *both* an image and a ZIP, so the
+        // cover has to be an image to begin with.
+        crate::image_io::decode_rgba(cover)?;
         Ok(Capacity {
             usable_bytes: SOFT_CAPACITY.saturating_sub(payload::overhead() as u64),
         })

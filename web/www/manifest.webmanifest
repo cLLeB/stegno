@@ -1,0 +1,19 @@
+{
+  "name": "Stegno — hide anything",
+  "short_name": "Stegno",
+  "description": "Hide encrypted messages inside ordinary photos, text and files. Runs entirely on your device.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#e9e7f3",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%236366f1'/%3E%3Cpath d='M50 22a14 14 0 0 0-14 14v8h-4a4 4 0 0 0-4 4v26a4 4 0 0 0 4 4h36a4 4 0 0 0 4-4V48a4 4 0 0 0-4-4h-4v-8a14 14 0 0 0-14-14zm-8 22v-8a8 8 0 0 1 16 0v8z' fill='white'/%3E%3C/svg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

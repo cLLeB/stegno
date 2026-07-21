@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1f56d6" />
+  <title>Stegno</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%231f56d6'/%3E%3Cpath d='M50 22a14 14 0 0 0-14 14v8h-4a4 4 0 0 0-4 4v26a4 4 0 0 0 4 4h36a4 4 0 0 0 4-4V48a4 4 0 0 0-4-4h-4v-8a14 14 0 0 0-14-14zm-8 22v-8a8 8 0 0 1 16 0v8z' fill='white'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="topbar-row">
+        <span class="brand">Stegno</span>
+        <button class="theme-toggle" id="themeToggle" aria-label="Switch theme" title="Switch theme">🌙</button>
+      </div>
+      <nav class="tabs" id="tabs">
+        <button data-group="hide" class="active">🔒 Hide</button>
+        <button data-group="reveal">🔑 Reveal</button>
+        <button data-group="analyze">🔬 Analyze</button>
+      </nav>
+      <nav class="subtabs" id="subtabs"></nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- HIDE (unified composer) -->
+    <section class="panel active" id="panel-compose">
+      <div class="card">
+        <h2>Hide</h2>
+        <p class="hint">Add cover photos and one or more secrets. Mix freely.</p>
+
+        <label>Cover file(s)</label>
+        <div class="drop" id="cmpCoversDrop"><span class="big">📎</span>Choose one or more covers — photo, audio, text, document, video, any file</div>
+        <input type="file" id="cmpCoversInput" multiple hidden />
+
+        <label>Secrets</label>
+        <div id="cmpEntries"></div>
+        <button class="ghost" id="cmpAddEntry" style="margin-top:10px">+ Add another secret</button>
+
+        <div id="cmpSingle">
+          <label>Method</label>
+          <select id="cmpMethod"></select>
+          <div class="small" id="cmpAutoNote"></div>
+          <button class="ghost" id="cmpPlanBtn" style="margin-top:10px;width:100%">💡 Show other methods</button>
+          <div id="cmpPlanOut"></div>
+        </div>
+        <div class="small" id="cmpScheme"></div>
+        <div class="small" id="cmpCap"></div>
+
+        <div class="row" style="margin-top:14px">
+          <div>
+            <label>Toughness</label>
+            <select id="cmpRobust"><option value="0">Standard</option><option value="1">Rugged</option><option value="2">Extra rugged</option><option value="3">Maximum</option></select>
+          </div>
+          <div>
+            <label>Squeeze</label>
+            <div class="check"><input type="checkbox" id="cmpCompress" /><label for="cmpCompress">Compress first</label></div>
+          </div>
+        </div>
+
+        <button class="primary" id="cmpBtn" disabled>Hide &amp; download</button>
+        <div class="out" id="cmpOut"></div>
+        <p class="small" style="margin-top:12px">One secret is a simple hide. Two or more each open with their own password (give one away as a decoy). Two or more covers split the data across them, all needed to rebuild. Combine any of it — and mix cover types freely, a photo and a video and a PDF can carry one secret between them. Photos come back as PNG; everything else keeps its own format.</p>
+      </div>
+    </section>
+
+    <!-- REVEAL -->
+    <section class="panel" id="panel-reveal">
+      <div class="card">
+        <h2>Reveal a secret</h2>
+        <p class="hint">Pick the stego file(s) and a password. The carrier and method are detected automatically.</p>
+        <label>Stego file(s)</label>
+        <div class="drop" id="revealDrop"><span class="big">🗂️</span>Choose the file(s) — any type. If it was split, pick all the parts.</div>
+        <input type="file" id="revealFile" multiple hidden />
+        <label>Password</label>
+        <input type="password" id="revealPass" placeholder="The password used to hide it" autocomplete="off" />
+        <button class="primary" id="revealBtn" disabled>Reveal</button>
+        <div class="out" id="revealOut"></div>
+      </div>
+    </section>
+
+    <!-- INSPECT -->
+    <section class="panel" id="panel-analyze">
+      <div class="card">
+        <h2>Inspect a file</h2>
+        <p class="hint">Structure, statistics, and a method guess.</p>
+        <label>File to inspect</label>
+        <div class="drop" id="analyzeDrop"><span class="big">🔍</span>Choose a file</div>
+        <input type="file" id="analyzeFile" hidden />
+        <button class="primary" id="analyzeBtn" disabled>Inspect</button>
+        <div class="out" id="analyzeOut"></div>
+      </div>
+    </section>
+
+    <!-- LAB -->
+    <section class="panel" id="panel-lab">
+      <div class="card">
+        <h2>Bit-plane viewer</h2>
+        <p class="hint">Hidden LSB data shows up as noise.</p>
+        <div class="drop" id="planeDrop"><span class="big">📷</span>Choose a photo</div>
+        <input type="file" id="planeFile" accept="image/*" hidden />
+        <div class="row">
+          <div><label>Channel</label><select id="planeChannel"><option value="0">Red</option><option value="1">Green</option><option value="2">Blue</option></select></div>
+          <div><label>Plane</label><select id="planePlane"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option></select></div>
+        </div>
+        <button class="primary" id="planeBtn" disabled>Render bit plane</button>
+        <div class="out"><img id="planeImg" class="render" alt="" hidden /></div>
+      </div>
+
+      <div class="card">
+        <h2>Compare photos</h2>
+        <p class="hint">Quality scores and a change map.</p>
+        <div class="row">
+          <div><label>Original</label><div class="drop mini" id="cmpCoverDrop"><span class="big">📷</span>Original</div><input type="file" id="cmpCover" accept="image/*" hidden /></div>
+          <div><label>Stego</label><div class="drop mini" id="cmpStegoDrop"><span class="big">🖼️</span>Stego</div><input type="file" id="cmpStego" accept="image/*" hidden /></div>
+        </div>
+        <button class="primary" id="cmpCompareBtn" disabled>Compare</button>
+        <div class="out" id="cmpCompareOut"></div>
+      </div>
+
+      <div class="card">
+        <h2>Detectability</h2>
+        <p class="hint">How much a payload raises suspicion.</p>
+        <div class="drop mini" id="detDrop"><span class="big">📷</span>Choose a cover</div>
+        <input type="file" id="detCover" accept="image/*" hidden />
+        <div class="row">
+          <div><label>Method</label><select id="detMethod"></select></div>
+          <div><label>Payload <span class="small">bytes</span></label><input type="number" id="detPayload" value="1024" min="1" /></div>
+        </div>
+        <button class="primary" id="detBtn" disabled>Estimate</button>
+        <div class="out" id="detOut"></div>
+      </div>
+
+      <div class="card">
+        <h2>Self-test &amp; benchmark</h2>
+        <p class="hint">Check the engine and time hashing.</p>
+        <div class="row">
+          <button class="ghost" id="doctorBtn" style="flex:1">🩺 Run self-test</button>
+          <button class="ghost" id="benchBtn" style="flex:1">⏱️ Benchmark</button>
+        </div>
+        <div class="out" id="labDiagOut"></div>
+      </div>
+    </section>
+
+    <!-- KEYS (Shamir secret sharing) -->
+    <section class="panel" id="panel-keys">
+      <div class="card">
+        <h2>Key-shares</h2>
+        <p class="hint">Any threshold of shares rebuilds a secret. A shared file comes back under its own name.</p>
+        <div class="seg" id="keysSeg">
+          <button data-mode="split" class="active">Split</button>
+          <button data-mode="combine">Combine</button>
+        </div>
+
+        <div id="keysSplit">
+          <label>Secret</label>
+          <div class="seg" id="keysType"><button data-t="text" class="active">Text</button><button data-t="file">File</button></div>
+          <textarea id="keysSecret" placeholder="Passphrase or note to split"></textarea>
+          <div id="keysFileWrap" hidden>
+            <div class="drop mini" id="keysFileDrop"><span class="big">📎</span>Choose a file</div>
+            <input type="file" id="keysFile" hidden />
+          </div>
+          <div class="row">
+            <div><label>Threshold <span class="small">to rebuild</span></label><select id="keysThreshold"></select></div>
+            <div><label>Total shares</label><select id="keysShares"></select></div>
+          </div>
+          <button class="primary" id="keysSplitBtn" disabled>Split into shares</button>
+          <div class="out" id="keysSplitOut"></div>
+        </div>
+
+        <div id="keysCombine" hidden>
+          <label>Paste shares <span class="small">one per line</span></label>
+          <textarea id="keysCombineText" placeholder="3-1a2b3c...&#10;5-9f8e7d..."></textarea>
+          <button class="primary" id="keysCombineBtn" disabled>Reconstruct secret</button>
+          <div class="out" id="keysCombineOut"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CLEAN -->
+    <section class="panel" id="panel-clean">
+      <div class="card">
+        <h2>Remove hidden data</h2>
+        <p class="hint">Destroys any hidden payload. Photo looks the same.</p>
+        <label>File to clean</label>
+        <div class="drop" id="cleanDrop"><span class="big">🧼</span>Choose a file</div>
+        <input type="file" id="cleanFile" hidden />
+        <button class="primary" id="cleanBtn" disabled>Sanitize &amp; download</button>
+        <div class="out" id="cleanOut"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>Runs on your device. No uploads. <span id="engineInfo"></span></footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

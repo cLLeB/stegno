@@ -11,15 +11,9 @@
 
 use crate::image_io::{decode_rgba, encode_png, RgbaImage};
 use crate::payload;
+use crate::region;
 use crate::seed::{self, Slot};
 use crate::StegnoError;
-
-/// Fixed, non-secret seed defining the decoy "master ranking". Splitting this
-/// public permutation in half yields two disjoint position sets — one per slot
-/// — so the real and decoy payloads can never collide. It is a constant (not
-/// key-derived) precisely so the extractor can reconstruct the regions with
-/// only the passphrase.
-const DECOY_MASTER_SEED: [u8; 32] = *b"stegno/decoy/master-ranking/v1!!";
 
 /// Colour channels used as carriers: R, G, B (alpha is left untouched).
 pub const CHANNELS_PER_PIXEL: usize = 3;
@@ -117,39 +111,58 @@ pub fn decoy_slot_capacity_bytes(width: u32, height: u32) -> u64 {
     ((region / 8) as u64).saturating_sub(payload::overhead() as u64)
 }
 
-/// Channel-slot visiting order for one decoy slot.
+/// Channel-slot visiting order for one decoy slot — the image-shaped view of a
+/// two-way [`crate::region::Region`].
 ///
-/// The fixed [`DECOY_MASTER_SEED`] permutation is split in half — `Primary`
-/// takes the first half, `Decoy` the second — guaranteeing the two slots use
-/// disjoint positions. Within the half, the visiting order is the
-/// passphrase-keyed permutation, so the payload is still scattered and only the
-/// holder of the right passphrase reconstructs it.
-pub fn decoy_region_order(
+/// Materializes the region into a slice, so it is only for callers that need
+/// one; the composite paths index a `Region` directly and never allocate.
+pub fn decoy_region_order(width: u32, height: u32, slot: Slot, key_seed: &[u8; 32]) -> Vec<u32> {
+    region_order(width, height, region::decoy_index(slot), 2, key_seed)
+}
+
+/// Channel-slot visiting order for region `index` of `count` disjoint partitions
+/// — the image-shaped view of [`crate::region::Region`].
+pub fn region_order(
     width: u32,
     height: u32,
-    slot: Slot,
+    index: u32,
+    count: u32,
     key_seed: &[u8; 32],
 ) -> Vec<u32> {
-    let n = total_slots(width, height);
-    if n == 0 {
-        return Vec::new();
-    }
-    let master = seed::permutation(n, &DECOY_MASTER_SEED);
-    let half = n / 2;
-    let region: &[u32] = match slot {
-        Slot::Primary => &master[..half],
-        Slot::Decoy => &master[half..],
-    };
-    seed::permutation(region.len(), key_seed)
-        .into_iter()
-        .map(|i| region[i as usize])
-        .collect()
+    let master = region::Master::new(total_slots(width, height));
+    region::to_vec(&master.region(index, count, key_seed))
+}
+
+/// Usable payload bytes in one region when the image is split `count` ways.
+pub fn region_capacity_bytes(width: u32, height: u32, count: u32) -> u64 {
+    region::capacity_bytes(total_slots(width, height), count)
 }
 
 /// Overwrite the LSB of `value` with `bit` (classic LSB replacement).
 #[inline]
 pub fn replace_lsb(value: u8, bit: u8) -> u8 {
     (value & 0xFE) | (bit & 1)
+}
+
+/// Read every whole byte stored along `order` (channel LSBs), with no framing.
+///
+/// Unlike [`read_frame_with`], this makes no magic/length assumptions — the
+/// composite scheme uses it because one entry's framed payload can span several
+/// regions and several covers, so the frame header is only present at the very
+/// start of the concatenated stream, not in every region.
+pub fn read_region_bytes(img: &RgbaImage, order: &[u32]) -> Vec<u8> {
+    let n_bytes = order.len() / 8;
+    let mut out = Vec::with_capacity(n_bytes);
+    for byte_idx in 0..n_bytes {
+        let mut b = 0u8;
+        for shift in (0..8).rev() {
+            let bit = byte_idx * 8 + (7 - shift);
+            let off = slot_to_offset(order[bit]);
+            b |= (img.pixels[off] & 1) << shift;
+        }
+        out.push(b);
+    }
+    out
 }
 
 /// Read the framed payload back out of `stego` following `order`. The bit is

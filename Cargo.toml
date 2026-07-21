@@ -1,3 +1,6 @@
 [workspace]
-members = ["core", "desktop/src-tauri"]
+members = ["core", "desktop/src-tauri", "web"]
+# Native builds/tests don't compile the wasm crate by default; wasm-pack targets
+# it explicitly (`wasm-pack build web`).
+default-members = ["core", "desktop/src-tauri"]
 resolver = "2"

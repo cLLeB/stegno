@@ -40,6 +40,14 @@ impl Method for MimicWords {
         Media::Text
     }
 
+    /// This method *generates* a carrier and ignores the cover completely, so
+    /// the output is word-salad rather than the file you supplied. Legitimate
+    /// when you want innocuous text from nothing; never what you want when you
+    /// asked to hide something inside a particular document.
+    fn preserves_cover(&self) -> bool {
+        false
+    }
+
     fn capacity(&self, _cover: &[u8]) -> Result<Capacity, StegnoError> {
         Ok(Capacity {
             usable_bytes: SOFT_CAPACITY.saturating_sub(payload::overhead() as u64),

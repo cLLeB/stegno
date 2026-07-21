@@ -1,4 +1,5 @@
 mod commands;
+mod video_tools;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -6,20 +7,47 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::list_methods,
+            commands::self_test,
+            commands::benchmark_kdf,
             commands::capacity,
+            commands::plan_embedding,
             commands::embed,
             commands::embed_text,
             commands::embed_file,
+            commands::embed_robust,
+            commands::embed_advanced,
+            commands::passphrase_strength,
             commands::embed_text_with_decoy,
             commands::embed_with_decoy,
+            commands::embed_multi,
+            commands::multi_slot_capacity,
             commands::embed_split,
             commands::decoy_capacity,
             commands::extract,
+            commands::extract_auto,
             commands::extract_split,
             commands::detect_lsb,
+            commands::scan_structure,
+            commands::fingerprint,
+            commands::detectability,
+            commands::sanitize,
+            commands::bit_plane,
+            commands::change_map,
+            commands::change_rate,
+            commands::sss_split,
+            commands::sss_combine,
+            commands::sss_split_secret,
+            commands::sss_combine_secret,
+            commands::cover_info,
+            commands::embed_composite,
+            commands::extract_composite,
+            commands::composite_capacity,
             commands::quality,
             commands::read_file,
             commands::write_file,
+            video_tools::ffmpeg_status,
+            video_tools::video_to_y4m,
+            video_tools::y4m_to_video,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Stegno");

@@ -4,11 +4,27 @@
 use serde::{Deserialize, Serialize};
 use stegno_core::payload::{Revealed, Secret};
 use stegno_core::ByteChunk;
+use stegno_core::benchmark::detectability as core_detectability;
+use stegno_core::crypto::benchmark_kdf as core_benchmark_kdf;
+use stegno_core::doctor::run_self_test as core_self_test;
+use stegno_core::fingerprint::fingerprint as core_fingerprint;
+use stegno_core::passphrase::estimate_passphrase_strength as core_passphrase_strength;
+use stegno_core::planner::plan_embedding as core_plan_embedding;
+use stegno_core::sanitize::sanitize as core_sanitize;
+use stegno_core::sss::{
+    sss_combine as core_sss_combine, sss_split as core_sss_split, SecretShare,
+};
+use stegno_core::structural::scan_structure as core_scan_structure;
+use stegno_core::visualize::{
+    bit_plane as core_bit_plane, change_map as core_change_map, change_rate as core_change_rate,
+};
 use stegno_core::{
     capacity as core_capacity, decoy_capacity as core_decoy_capacity, detect_lsb as core_detect,
-    embed as core_embed, embed_split as core_embed_split, embed_with_decoy as core_embed_with_decoy,
-    extract as core_extract, extract_split as core_extract_split, list_methods as core_list,
-    quality as core_quality,
+    embed as core_embed, embed_advanced as core_embed_advanced, embed_robust as core_embed_robust,
+    embed_split as core_embed_split, embed_with_decoy as core_embed_with_decoy,
+    embed_multi as core_embed_multi, extract as core_extract, extract_auto as core_extract_auto,
+    extract_split as core_extract_split, list_methods as core_list, multi_slot_capacity as core_multi_capacity,
+    quality as core_quality, Recipient,
 };
 
 #[tauri::command]
@@ -92,6 +108,115 @@ impl From<SecretDto> for Secret {
     }
 }
 
+// --- carriers & composite --------------------------------------------------
+
+/// What a cover is, so the UI can report capacity and name the stego file for
+/// the right container instead of assuming a photo.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverInfoDto {
+    pub kind: String,
+    /// The container the bytes actually are — name output files from this.
+    pub format: String,
+    pub extension: String,
+    pub mime: String,
+    pub preserves_container: bool,
+    pub slots: u64,
+    pub capacity_bytes: u64,
+}
+
+#[tauri::command]
+pub fn cover_info(cover: Vec<u8>) -> Result<CoverInfoDto, String> {
+    let i = stegno_core::cover_info(cover).map_err(|e| e.to_string())?;
+    Ok(CoverInfoDto {
+        kind: i.kind,
+        format: i.format,
+        extension: i.extension,
+        mime: i.mime,
+        preserves_container: i.preserves_container,
+        slots: i.slots,
+        capacity_bytes: i.capacity_bytes,
+    })
+}
+
+/// One composite entry: a secret plus the passphrase that opens it.
+#[derive(Deserialize)]
+pub struct EntryDto {
+    pub secret: SecretDto,
+    pub passphrase: String,
+}
+
+impl From<EntryDto> for Recipient {
+    fn from(e: EntryDto) -> Self {
+        Recipient {
+            secret: e.secret.into(),
+            passphrase: e.passphrase,
+        }
+    }
+}
+
+/// The one primitive behind every mix: N independent entries across M covers of
+/// any medium. 1×1 is a plain hide, 2×1 a decoy, N×1 multi-recipient, 1×M a
+/// split, N×M all of it at once. Returns one stego file per cover, in order.
+#[tauri::command]
+pub fn embed_composite(
+    covers: Vec<Vec<u8>>,
+    entries: Vec<EntryDto>,
+    robustness: u8,
+    compress: bool,
+) -> Result<Vec<Vec<u8>>, String> {
+    let covers = covers.into_iter().map(|bytes| ByteChunk { bytes }).collect();
+    let entries = entries.into_iter().map(Recipient::from).collect();
+    stegno_core::embed_composite(covers, entries, robustness, compress)
+        .map(|out| out.into_iter().map(|c| c.bytes).collect())
+        .map_err(|e| e.to_string())
+}
+
+/// Reveal the one entry a passphrase unlocks. Pass every file made together.
+#[tauri::command]
+pub fn extract_composite(stegos: Vec<Vec<u8>>, passphrase: String) -> Result<RevealedDto, String> {
+    let stegos = stegos.into_iter().map(|bytes| ByteChunk { bytes }).collect();
+    stegno_core::extract_composite(stegos, passphrase)
+        .map(RevealedDto::from)
+        .map_err(|e| e.to_string())
+}
+
+/// Usable bytes for one entry when `entry_count` entries share these covers.
+#[tauri::command]
+pub fn composite_capacity(covers: Vec<Vec<u8>>, entry_count: u32) -> Result<u64, String> {
+    let covers = covers.into_iter().map(|bytes| ByteChunk { bytes }).collect();
+    stegno_core::composite_capacity(covers, entry_count).map_err(|e| e.to_string())
+}
+
+/// Split a typed secret into Shamir shares, so a shared file recombines under
+/// its own name rather than as anonymous bytes.
+#[tauri::command]
+pub fn sss_split_secret(
+    secret: SecretDto,
+    threshold: u8,
+    shares: u8,
+) -> Result<Vec<SecretShareDto>, String> {
+    stegno_core::sss_split_secret(secret.into(), threshold, shares)
+        .map(|v| {
+            v.into_iter()
+                .map(|s| SecretShareDto { x: s.x, y: s.y })
+                .collect()
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// Recombine typed shares, restoring the secret's kind and any filenames.
+#[tauri::command]
+pub fn sss_combine_secret(shares: Vec<SecretShareDto>) -> Result<RevealedDto, String> {
+    let shares = shares
+        .into_iter()
+        .map(|s| SecretShare { x: s.x, y: s.y })
+        .collect();
+    stegno_core::sss_combine_secret(shares)
+        .map(RevealedDto::from)
+        .map_err(|e| e.to_string())
+}
+
 /// Hide a real message and a decoy message in one photo, each under its own
 /// password. Supports either text or file payloads per slot. Always produces a
 /// PNG photo.
@@ -113,6 +238,34 @@ pub fn embed_with_decoy(
     .map_err(|e| e.to_string())
 }
 
+/// One recipient in a multi-recipient embed.
+#[derive(Deserialize)]
+pub struct RecipientDto {
+    pub secret: SecretDto,
+    pub passphrase: String,
+}
+
+/// Hide several independent messages in one photo, each under its own passphrase
+/// in a disjoint keyed region. Each recipient reveals only their own message with
+/// the ordinary `extract`. 2–8 recipients.
+#[tauri::command]
+pub fn embed_multi(cover: Vec<u8>, recipients: Vec<RecipientDto>) -> Result<Vec<u8>, String> {
+    let core_recipients: Vec<Recipient> = recipients
+        .into_iter()
+        .map(|r| Recipient {
+            secret: r.secret.into(),
+            passphrase: r.passphrase,
+        })
+        .collect();
+    core_embed_multi(cover, core_recipients).map_err(|e| e.to_string())
+}
+
+/// Usable bytes per recipient when splitting a cover `count` ways.
+#[tauri::command]
+pub fn multi_slot_capacity(cover: Vec<u8>, count: u32) -> Result<u64, String> {
+    core_multi_capacity(cover, count).map_err(|e| e.to_string())
+}
+
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum RevealedDto {
@@ -122,18 +275,51 @@ pub enum RevealedDto {
     Files { files: Vec<stegno_core::payload::FileRecord> },
 }
 
+impl From<Revealed> for RevealedDto {
+    fn from(r: Revealed) -> Self {
+        match r {
+            Revealed::None => RevealedDto::None,
+            Revealed::Text { text } => RevealedDto::Text { text },
+            Revealed::File { name, bytes } => RevealedDto::File { name, bytes },
+            Revealed::Files { files } => RevealedDto::Files { files },
+        }
+    }
+}
+
 #[tauri::command]
 pub fn extract(
     method_id: String,
     stego: Vec<u8>,
     passphrase: String,
 ) -> Result<RevealedDto, String> {
-    match core_extract(method_id, stego, passphrase).map_err(|e| e.to_string())? {
-        Revealed::None => Ok(RevealedDto::None),
-        Revealed::Text { text } => Ok(RevealedDto::Text { text }),
-        Revealed::File { name, bytes } => Ok(RevealedDto::File { name, bytes }),
-        Revealed::Files { files } => Ok(RevealedDto::Files { files }),
-    }
+    core_extract(method_id, stego, passphrase)
+        .map(RevealedDto::from)
+        .map_err(|e| e.to_string())
+}
+
+/// Auto-detected extraction result: which method matched (empty if none).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoRevealedDto {
+    pub method_id: String,
+    pub revealed: RevealedDto,
+}
+
+/// Reveal a hidden payload without knowing which method hid it. Tries every
+/// method and returns the first that decrypts under the passphrase.
+#[tauri::command]
+pub fn extract_auto(stego: Vec<u8>, passphrase: String) -> Result<AutoRevealedDto, String> {
+    let found = core_extract_auto(stego, passphrase).map_err(|e| e.to_string())?;
+    let revealed = match found.revealed {
+        Revealed::None => RevealedDto::None,
+        Revealed::Text { text } => RevealedDto::Text { text },
+        Revealed::File { name, bytes } => RevealedDto::File { name, bytes },
+        Revealed::Files { files } => RevealedDto::Files { files },
+    };
+    Ok(AutoRevealedDto {
+        method_id: found.method_id,
+        revealed,
+    })
 }
 
 /// Unified hide command — accepts text, a single file, or multiple files.
@@ -145,6 +331,68 @@ pub fn embed(
     passphrase: String,
 ) -> Result<Vec<u8>, String> {
     core_embed(method_id, cover, secret.into(), passphrase).map_err(|e| e.to_string())
+}
+
+/// Hide a secret with a Reed–Solomon error-correction layer so it survives
+/// bounded carrier damage (light recompression, a resize, a scanned print).
+/// `robustness` is 1 (smallest overhead) to 3 (most resilient). Recovered by the
+/// ordinary `extract` command — the recipient needs only the passphrase.
+#[tauri::command]
+pub fn embed_robust(
+    method_id: String,
+    cover: Vec<u8>,
+    secret: SecretDto,
+    passphrase: String,
+    robustness: u8,
+) -> Result<Vec<u8>, String> {
+    core_embed_robust(method_id, cover, secret.into(), passphrase, robustness)
+        .map_err(|e| e.to_string())
+}
+
+/// Full hide pipeline with optional Reed–Solomon FEC (`robustness` 0–3) and an
+/// optional compression pre-pass. Both are recorded in the frame so the ordinary
+/// `extract` reverses them automatically.
+#[tauri::command]
+pub fn embed_advanced(
+    method_id: String,
+    cover: Vec<u8>,
+    secret: SecretDto,
+    passphrase: String,
+    robustness: u8,
+    compress: bool,
+) -> Result<Vec<u8>, String> {
+    core_embed_advanced(
+        method_id,
+        cover,
+        secret.into(),
+        passphrase,
+        robustness,
+        compress,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Offline passphrase-strength estimate (score 0–4, entropy, crack time, tips).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PassphraseStrengthDto {
+    pub score: u8,
+    pub entropy_bits: f64,
+    pub crack_time_display: String,
+    pub warning: String,
+    pub suggestions: Vec<String>,
+}
+
+#[tauri::command]
+pub fn passphrase_strength(passphrase: String) -> PassphraseStrengthDto {
+    let r = core_passphrase_strength(passphrase);
+    PassphraseStrengthDto {
+        score: r.score,
+        entropy_bits: r.entropy_bits,
+        crack_time_display: r.crack_time_display,
+        warning: r.warning,
+        suggestions: r.suggestions,
+    }
 }
 
 #[tauri::command]
@@ -211,6 +459,249 @@ pub fn quality(cover: Vec<u8>, stego: Vec<u8>) -> Result<QualityDto, String> {
         psnr_db: r.psnr_db,
         ssim: r.ssim,
     })
+}
+
+/// One ranked method recommendation for a cover + payload size.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MethodRecommendationDto {
+    pub method_id: String,
+    pub display_name: String,
+    pub media: String,
+    pub usable_bytes: u64,
+    pub fits: bool,
+    pub fill_ratio: f64,
+    pub stealth_tier: u8,
+    pub note: String,
+}
+
+/// Rank the methods that can hide `payload_len` bytes in `cover`, best-first.
+#[tauri::command]
+pub fn plan_embedding(cover: Vec<u8>, payload_len: u64) -> Vec<MethodRecommendationDto> {
+    core_plan_embedding(cover, payload_len)
+        .into_iter()
+        .map(|r| MethodRecommendationDto {
+            method_id: r.method_id,
+            display_name: r.display_name,
+            media: r.media,
+            usable_bytes: r.usable_bytes,
+            fits: r.fits,
+            fill_ratio: r.fill_ratio,
+            stealth_tier: r.stealth_tier,
+            note: r.note,
+        })
+        .collect()
+}
+
+/// One structural signal (mirrors `stegno_core::structural::StructuralFinding`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructuralFindingDto {
+    pub kind: String,
+    pub detail: String,
+    pub severity: u8,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructuralReportDto {
+    pub format: String,
+    pub findings: Vec<StructuralFindingDto>,
+    pub suspicious: bool,
+}
+
+/// Measured Argon2id key-derivation cost on this device.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KdfBenchmarkDto {
+    pub millis: f64,
+    pub memory_kib: u32,
+    pub iterations: u32,
+    pub verdict: String,
+    /// Plain-language reading — a bare "weak" tells the user nothing actionable.
+    pub explanation: String,
+}
+
+#[tauri::command]
+pub fn benchmark_kdf() -> KdfBenchmarkDto {
+    let b = core_benchmark_kdf();
+    KdfBenchmarkDto {
+        millis: b.millis,
+        memory_kib: b.memory_kib,
+        iterations: b.iterations,
+        verdict: b.verdict,
+        explanation: b.explanation,
+    }
+}
+
+/// Per-method result of the engine self-test.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfTestResultDto {
+    pub method_id: String,
+    pub media: String,
+    pub ok: bool,
+    pub usable_bytes: u64,
+    pub detail: String,
+}
+
+/// Round-trip a known secret through every method; report per-method health.
+#[tauri::command]
+pub fn self_test() -> Vec<SelfTestResultDto> {
+    core_self_test()
+        .into_iter()
+        .map(|r| SelfTestResultDto {
+            method_id: r.method_id,
+            media: r.media,
+            ok: r.ok,
+            usable_bytes: r.usable_bytes,
+            detail: r.detail,
+        })
+        .collect()
+}
+
+/// How detectable a planned embed would be (dry-run with random data).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectabilityDto {
+    pub method_id: String,
+    pub clean_confidence: f64,
+    pub stego_confidence: f64,
+    pub delta: f64,
+    pub psnr_db: f64,
+    pub verdict: String,
+}
+
+#[tauri::command]
+pub fn detectability(
+    method_id: String,
+    cover: Vec<u8>,
+    payload_len: u64,
+) -> Result<DetectabilityDto, String> {
+    let r = core_detectability(method_id, cover, payload_len).map_err(|e| e.to_string())?;
+    Ok(DetectabilityDto {
+        method_id: r.method_id,
+        clean_confidence: r.clean_confidence,
+        stego_confidence: r.stego_confidence,
+        delta: r.delta,
+        psnr_db: r.psnr_db,
+        verdict: r.verdict,
+    })
+}
+
+/// One ranked method-fingerprint guess.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MethodGuessDto {
+    pub label: String,
+    pub confidence: f64,
+    pub reason: String,
+}
+
+/// Rank which steganography method most likely produced a file, best-first.
+#[tauri::command]
+pub fn fingerprint(data: Vec<u8>) -> Vec<MethodGuessDto> {
+    core_fingerprint(data)
+        .into_iter()
+        .map(|g| MethodGuessDto {
+            label: g.label,
+            confidence: g.confidence,
+            reason: g.reason,
+        })
+        .collect()
+}
+
+/// Counter-steganography: strip any hidden payload from a file (LSB planes,
+/// appended data, polyglots, private chunks, zero-width text).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SanitizeReportDto {
+    pub cleaned: Vec<u8>,
+    pub format: String,
+    pub actions: Vec<String>,
+    pub changed: bool,
+}
+
+#[tauri::command]
+pub fn sanitize(data: Vec<u8>) -> SanitizeReportDto {
+    let r = core_sanitize(data);
+    SanitizeReportDto {
+        cleaned: r.cleaned,
+        format: r.format,
+        actions: r.actions,
+        changed: r.changed,
+    }
+}
+
+/// Scan a file's container structure for signs of hidden data (appended data,
+/// polyglots, private metadata chunks, zero-width text). No payload is decoded.
+#[tauri::command]
+pub fn scan_structure(data: Vec<u8>) -> StructuralReportDto {
+    let r = core_scan_structure(data);
+    StructuralReportDto {
+        format: r.format,
+        findings: r
+            .findings
+            .into_iter()
+            .map(|f| StructuralFindingDto {
+                kind: f.kind,
+                detail: f.detail,
+                severity: f.severity,
+            })
+            .collect(),
+        suspicious: r.suspicious,
+    }
+}
+
+/// One Shamir share (x-coordinate + per-byte evaluations).
+#[derive(Serialize, Deserialize)]
+pub struct SecretShareDto {
+    pub x: u8,
+    pub y: Vec<u8>,
+}
+
+/// Split a secret into `shares` pieces, any `threshold` of which reconstruct it.
+#[tauri::command]
+pub fn sss_split(
+    secret: Vec<u8>,
+    threshold: u8,
+    shares: u8,
+) -> Result<Vec<SecretShareDto>, String> {
+    core_sss_split(secret, threshold, shares)
+        .map(|v| {
+            v.into_iter()
+                .map(|s| SecretShareDto { x: s.x, y: s.y })
+                .collect()
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// Reconstruct a secret from a set of shares (need at least the threshold count).
+#[tauri::command]
+pub fn sss_combine(shares: Vec<SecretShareDto>) -> Result<Vec<u8>, String> {
+    let core_shares = shares
+        .into_iter()
+        .map(|s| SecretShare { x: s.x, y: s.y })
+        .collect();
+    core_sss_combine(core_shares).map_err(|e| e.to_string())
+}
+
+/// Render a bit-plane of a colour channel as a black/white PNG.
+#[tauri::command]
+pub fn bit_plane(image: Vec<u8>, channel: u8, plane: u8) -> Result<Vec<u8>, String> {
+    core_bit_plane(image, channel, plane).map_err(|e| e.to_string())
+}
+
+/// Paint every pixel that changed between cover and stego, as a PNG.
+#[tauri::command]
+pub fn change_map(cover: Vec<u8>, stego: Vec<u8>) -> Result<Vec<u8>, String> {
+    core_change_map(cover, stego).map_err(|e| e.to_string())
+}
+
+/// Fraction of pixels changed between cover and stego, [0,1].
+#[tauri::command]
+pub fn change_rate(cover: Vec<u8>, stego: Vec<u8>) -> Result<f64, String> {
+    core_change_rate(cover, stego).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

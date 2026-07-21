@@ -14,6 +14,67 @@ export type SecretInput =
   | { kind: "file"; name: string; bytes: number[] }
   | { kind: "files"; files: { name: string; bytes: number[] }[] };
 
+/** Carrier families the engine recognises; anything else is carried as bytes. */
+export type CarrierKind = "image" | "audio" | "text" | "video" | "bytes";
+
+export interface CoverInfo {
+  kind: CarrierKind;
+  /** The container the bytes actually are — name output files from this. */
+  format: string;
+  extension: string;
+  mime: string;
+  /** True when hiding keeps the original container (a PDF stays a PDF). */
+  preservesContainer: boolean;
+  slots: number;
+  capacityBytes: number;
+}
+
+/** What a cover actually is, so the UI can name the output for the right container. */
+export function coverInfo(cover: number[]): Promise<CoverInfo> {
+  return invoke<CoverInfo>("cover_info", { cover });
+}
+
+/** One composite entry: a secret plus the passphrase that opens only it. */
+export interface CompositeEntry {
+  secret: SecretInput;
+  passphrase: string;
+}
+
+/**
+ * The one primitive behind every mix: N independent secrets across M covers of
+ * any medium. 1x1 is a plain hide, 2x1 a decoy, Nx1 multi-recipient, 1xM a
+ * split, NxM all of it at once. Returns one stego file per cover, in order.
+ */
+export function embedComposite(
+  covers: number[][],
+  entries: CompositeEntry[],
+  robustness: 0 | 1 | 2 | 3,
+  compress: boolean
+): Promise<number[][]> {
+  return invoke<number[][]>("embed_composite", {
+    covers,
+    entries,
+    robustness,
+    compress,
+  });
+}
+
+/** Recover whichever entry `passphrase` opens from a full set of stego parts. */
+export function extractComposite(
+  stegos: number[][],
+  passphrase: string
+): Promise<Revealed> {
+  return invoke<Revealed>("extract_composite", { stegos, passphrase });
+}
+
+/** Usable bytes for one entry when `entryCount` entries share these covers. */
+export function compositeCapacity(
+  covers: number[][],
+  entryCount: number
+): Promise<number> {
+  return invoke<number>("composite_capacity", { covers, entryCount });
+}
+
 export async function listMethods(): Promise<MethodInfo[]> {
   const raw = await invoke<[string, string, string][]>("list_methods");
   return raw.map(([id, displayName, media]) => ({ id, displayName, media }));
@@ -21,6 +82,59 @@ export async function listMethods(): Promise<MethodInfo[]> {
 
 export function capacity(methodId: string, cover: number[]): Promise<number> {
   return invoke<number>("capacity", { methodId, cover });
+}
+
+export interface SelfTestResult {
+  methodId: string;
+  media: string;
+  ok: boolean;
+  usableBytes: number;
+  detail: string;
+}
+
+/** Round-trip a known secret through every method; report per-method health. */
+export function selfTest(): Promise<SelfTestResult[]> {
+  return invoke<SelfTestResult[]>("self_test");
+}
+
+export interface KdfBenchmark {
+  millis: number;
+  memoryKib: number;
+  iterations: number;
+  verdict: string;
+  /** Plain-language reading — a bare "weak" isn't actionable on its own. */
+  explanation: string;
+}
+
+/** Measure Argon2id key-derivation cost on this device (weak/ok/slow). */
+export function benchmarkKdf(): Promise<KdfBenchmark> {
+  return invoke<KdfBenchmark>("benchmark_kdf");
+}
+
+export interface MethodRecommendation {
+  methodId: string;
+  displayName: string;
+  media: string;
+  usableBytes: number;
+  fits: boolean;
+  fillRatio: number;
+  stealthTier: 0 | 1 | 2;
+  note: string;
+}
+
+/**
+ * Rank the methods that can hide `payloadLen` bytes in `cover`, best-first
+ * (fitting methods before non-fitting; stealthier methods before detectable
+ * ones; lower fill ratio before higher).
+ */
+export function planEmbedding(
+  cover: number[],
+  payloadLen: number
+): Promise<MethodRecommendation[]> {
+  return invoke<MethodRecommendation[]>("plan_embedding", {
+    cover,
+    payloadLen,
+  });
 }
 
 export function embedText(
@@ -60,6 +174,66 @@ export function embedSecret(
     secret,
     passphrase,
   });
+}
+
+/**
+ * Hide a secret with Reed–Solomon error correction so it survives bounded
+ * carrier damage (light recompression, a resize, a scanned print). `robustness`
+ * ranges 1 (smallest overhead) to 3 (most resilient). Recovered with the plain
+ * `extract` - the recipient only needs the passphrase.
+ */
+export function embedRobust(
+  methodId: string,
+  cover: number[],
+  secret: SecretInput,
+  passphrase: string,
+  robustness: 1 | 2 | 3
+): Promise<number[]> {
+  return invoke<number[]>("embed_robust", {
+    methodId,
+    cover,
+    secret,
+    passphrase,
+    robustness,
+  });
+}
+
+/**
+ * Full hide pipeline: optional Reed–Solomon FEC (`robustness` 0 = off, 1–3) and
+ * an optional compression pre-pass (`compress`). Both are recorded in the frame,
+ * so a plain `extract` reverses them - the recipient only needs the passphrase.
+ */
+export function embedAdvanced(
+  methodId: string,
+  cover: number[],
+  secret: SecretInput,
+  passphrase: string,
+  robustness: 0 | 1 | 2 | 3,
+  compress: boolean
+): Promise<number[]> {
+  return invoke<number[]>("embed_advanced", {
+    methodId,
+    cover,
+    secret,
+    passphrase,
+    robustness,
+    compress,
+  });
+}
+
+export interface PassphraseStrength {
+  score: 0 | 1 | 2 | 3 | 4;
+  entropyBits: number;
+  crackTimeDisplay: string;
+  warning: string;
+  suggestions: string[];
+}
+
+/** Offline passphrase-strength estimate - no dictionary download, no network. */
+export function passphraseStrength(
+  passphrase: string
+): Promise<PassphraseStrength> {
+  return invoke<PassphraseStrength>("passphrase_strength", { passphrase });
 }
 
 /** Usable bytes per slot when hiding a real + decoy message (≈ half the image each). */
@@ -112,6 +286,47 @@ export function extract(
   return invoke<Revealed>("extract", { methodId, stego, passphrase });
 }
 
+export interface RecipientInput {
+  secret: SecretInput;
+  passphrase: string;
+}
+
+/**
+ * Hide several independent messages in one photo - each recipient reveals only
+ * their own with the ordinary `extract`, the others invisible without the key.
+ * 2–8 recipients.
+ */
+export function embedMulti(
+  cover: number[],
+  recipients: RecipientInput[]
+): Promise<number[]> {
+  return invoke<number[]>("embed_multi", { cover, recipients });
+}
+
+/** Usable bytes per recipient when splitting a cover `count` ways. */
+export function multiSlotCapacity(
+  cover: number[],
+  count: number
+): Promise<number> {
+  return invoke<number>("multi_slot_capacity", { cover, count });
+}
+
+export interface AutoRevealed {
+  methodId: string;
+  revealed: Revealed;
+}
+
+/**
+ * Reveal a hidden payload without knowing which method hid it. Returns the
+ * matching method id (empty if nothing found) alongside the revealed data.
+ */
+export function extractAuto(
+  stego: number[],
+  passphrase: string
+): Promise<AutoRevealed> {
+  return invoke<AutoRevealed>("extract_auto", { stego, passphrase });
+}
+
 export function embedSplit(
   methodId: string,
   covers: number[][],
@@ -138,11 +353,84 @@ export type Detection = {
   chiSquareP: number;
   rsRegularityGap: number;
   samplePairRate: number;
+  hogUniformity: number;
+  noiseResidualEnergy: number;
+  mlConfidence: number;
+  isStenographic: boolean;
 };
 
 /** Scan a photo for signs of hidden LSB data. */
 export function detectLsb(image: number[]): Promise<Detection> {
   return invoke<Detection>("detect_lsb", { image });
+}
+
+export interface SanitizeReport {
+  cleaned: number[];
+  format: string;
+  actions: string[];
+  changed: boolean;
+}
+
+/**
+ * Counter-steganography: return a cleaned copy of a file with any hidden payload
+ * destroyed (LSB planes zeroed + re-encode, appended data / polyglots / private
+ * chunks dropped, zero-width & trailing whitespace stripped from text).
+ */
+export function sanitize(data: number[]): Promise<SanitizeReport> {
+  return invoke<SanitizeReport>("sanitize", { data });
+}
+
+export interface StructuralFinding {
+  kind: string;
+  detail: string;
+  severity: 0 | 1 | 2;
+}
+
+export interface StructuralReport {
+  format: string;
+  findings: StructuralFinding[];
+  suspicious: boolean;
+}
+
+/**
+ * Scan a file's container structure for signs of hidden data - appended data,
+ * PNG/ZIP polyglots, private metadata chunks, or zero-width text. Complements
+ * `detectLsb` (which looks at pixel statistics) with format-level checks.
+ */
+export function scanStructure(data: number[]): Promise<StructuralReport> {
+  return invoke<StructuralReport>("scan_structure", { data });
+}
+
+export interface MethodGuess {
+  label: string;
+  confidence: number;
+  reason: string;
+}
+
+/** Rank which steganography method most likely produced a file, best-first. */
+export function fingerprint(data: number[]): Promise<MethodGuess[]> {
+  return invoke<MethodGuess[]>("fingerprint", { data });
+}
+
+export interface Detectability {
+  methodId: string;
+  cleanConfidence: number;
+  stegoConfidence: number;
+  delta: number;
+  psnrDb: number;
+  verdict: string;
+}
+
+/**
+ * Estimate how detectable embedding `payloadLen` bytes with `methodId` would be
+ * on `cover` - a dry-run with random data measuring detector rise + PSNR cost.
+ */
+export function detectability(
+  methodId: string,
+  cover: number[],
+  payloadLen: number
+): Promise<Detectability> {
+  return invoke<Detectability>("detectability", { methodId, cover, payloadLen });
 }
 
 export type Quality = { mse: number; psnrDb: number; ssim: number };
@@ -152,10 +440,118 @@ export function quality(cover: number[], stego: number[]): Promise<Quality> {
   return invoke<Quality>("quality", { cover, stego });
 }
 
+export interface SecretShare {
+  x: number;
+  y: number[];
+}
+
+/**
+ * Split a secret into `shares` pieces, any `threshold` of which reconstruct it
+ * (Shamir Secret Sharing). Fewer than `threshold` reveal nothing.
+ */
+export function sssSplit(
+  secret: number[],
+  threshold: number,
+  shares: number
+): Promise<SecretShare[]> {
+  return invoke<SecretShare[]>("sss_split", { secret, threshold, shares });
+}
+
+/** Reconstruct a secret from a set of Shamir shares. */
+export function sssCombine(shares: SecretShare[]): Promise<number[]> {
+  return invoke<number[]>("sss_combine", { shares });
+}
+
+/**
+ * Split a *typed* secret, so a shared file recombines under its own filename
+ * instead of anonymous bytes.
+ */
+export function sssSplitSecret(
+  secret: SecretInput,
+  threshold: number,
+  shares: number
+): Promise<SecretShare[]> {
+  return invoke<SecretShare[]>("sss_split_secret", {
+    secret,
+    threshold,
+    shares,
+  });
+}
+
+/** Rebuild a typed secret (message or named file) from Shamir shares. */
+export function sssCombineSecret(shares: SecretShare[]): Promise<Revealed> {
+  return invoke<Revealed>("sss_combine_secret", { shares });
+}
+
+/**
+ * Render bit-plane `plane` (0=LSB..7) of colour `channel` (0=R,1=G,2=B) as a
+ * black/white PNG - LSB planes of a stego image show the payload as noise.
+ */
+export function bitPlane(
+  image: number[],
+  channel: number,
+  plane: number
+): Promise<number[]> {
+  return invoke<number[]>("bit_plane", { image, channel, plane });
+}
+
+/** PNG painting every pixel that changed between cover and stego white. */
+export function changeMap(cover: number[], stego: number[]): Promise<number[]> {
+  return invoke<number[]>("change_map", { cover, stego });
+}
+
+/** Fraction of pixels changed between cover and stego, [0,1]. */
+export function changeRate(cover: number[], stego: number[]): Promise<number> {
+  return invoke<number>("change_rate", { cover, stego });
+}
+
 export function readFile(path: string): Promise<number[]> {
   return invoke<number[]>("read_file", { path });
 }
 
 export function writeFile(path: string, bytes: number[]): Promise<void> {
   return invoke<void>("write_file", { path, bytes });
+}
+
+/* ---------- optional ffmpeg bridge (desktop only) ---------- */
+
+export interface FfmpegStatus {
+  available: boolean;
+  /** ffmpeg's version line, or why it can't be used. */
+  detail: string;
+}
+
+/** Whether a system ffmpeg is present, enabling frame-level video embedding. */
+export function ffmpegStatus(): Promise<FfmpegStatus> {
+  return invoke<FfmpegStatus>("ffmpeg_status");
+}
+
+/**
+ * Decode a compressed video to lossless YUV4MPEG2 the engine can carry.
+ * The result is raw video — roughly `width × height × 1.5` bytes per frame —
+ * so keep clips short.
+ */
+export function videoToY4m(path: string): Promise<number[]> {
+  return invoke<number[]>("video_to_y4m", { path });
+}
+
+/**
+ * Re-encode carried frames to lossless FFV1 in Matroska, restoring the original
+ * file's audio. Lossless is mandatory: any lossy codec discards the payload.
+ */
+export function y4mToVideo(
+  y4m: number[],
+  originalPath: string,
+  outPath: string
+): Promise<void> {
+  return invoke<void>("y4m_to_video", { y4m, originalPath, outPath });
+}
+
+/** Container extensions worth offering the frame-level path for. */
+const VIDEO_EXTS = ["mp4", "mkv", "webm", "mov", "avi", "m4v", "wmv", "flv"];
+
+/** Whether a filename looks like a compressed video ffmpeg could transcode. */
+export function looksLikeVideo(name: string): boolean {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return VIDEO_EXTS.includes(ext);
 }
