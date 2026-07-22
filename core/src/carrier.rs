@@ -287,10 +287,19 @@ const REGION_MAGIC: &[u8; 4] = b"SCAR";
 const REGION_TRAILER: usize = 8 + 4;
 
 /// Smallest and largest slot region an elastic carrier will offer, in bytes.
-/// The floor keeps tiny covers usable at all; the ceiling bounds the cost of the
-/// position permutations, which are `O(slots)` in both time and memory.
+///
+/// The floor keeps tiny covers usable at all. The ceiling used to be 1 MiB
+/// because the position permutations were materialized `Vec<u32>`s, so a large
+/// region cost proportional memory before a single byte was hidden. [`crate::prp`]
+/// computes those positions instead, so that reason is gone — and the old cap
+/// was badly limiting in practice: a 25 MB document offered the same 1 MiB as a
+/// 4 MB one, and two secrets sharing two such covers got about a megabyte each.
+///
+/// What remains is the region itself, which is allocated whether or not it is
+/// filled. 64 MiB bounds that while being far above anything the proportional
+/// budget below reaches for ordinary files — it only binds past a ~256 MB cover.
 const ELASTIC_MIN_BYTES: usize = 4 * 1024;
-const ELASTIC_MAX_BYTES: usize = 1024 * 1024;
+const ELASTIC_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 /// Slot budget for a clean cover of `len` bytes.
 ///
@@ -691,6 +700,31 @@ mod tests {
     /// A carrier must never balloon the cover. Text is the trap here: every bit
     /// costs three UTF-8 bytes, so budgeting it in bytes of capacity inflated
     /// files 24-fold — a 2.4 KB note became 100 KB of invisible padding.
+    /// Capacity must track the cover's size, not flatten at a fixed ceiling.
+    ///
+    /// A 25 MB document used to offer the same 1 MiB as a 4 MB one, so a real
+    /// pair of large PDF covers carried about a megabyte per secret when they
+    /// could hold several.
+    #[test]
+    fn a_large_cover_offers_proportionally_more_room() {
+        let cap = |mb: usize| -> usize {
+            let blob: Vec<u8> = (0..mb * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+            raw_capacity_bytes(open_bytes(&blob).unwrap().as_ref())
+        };
+        let four = cap(4);
+        let twenty_five = cap(25);
+        assert!(
+            twenty_five > four * 5,
+            "25 MB cover gave {twenty_five} bytes against {four} for 4 MB — still capped"
+        );
+        // And it is genuinely a quarter of the cover, not an arbitrary number.
+        let expected = 25 * 1024 * 1024 / 4;
+        assert!(
+            twenty_five.abs_diff(expected) < expected / 20,
+            "expected about {expected} bytes, got {twenty_five}"
+        );
+    }
+
     #[test]
     fn stego_output_stays_close_to_the_cover_size() {
         let text = "The garden is lovely this year, and the roses have taken.\n"
