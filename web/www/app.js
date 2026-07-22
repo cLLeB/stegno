@@ -282,7 +282,28 @@ function refreshCompose() {
   method.disabled = !single;
   plan.disabled = !single;
   $("cmpSingle").classList.toggle("inactive", !single);
-  if (!single) $("cmpPlanOut").innerHTML = "";
+  if (!single) {
+    $("cmpPlanOut").innerHTML = "";
+    // Leaving the last single-hide method on screen while it is disabled reads
+    // as "your PDF will be hidden with Photo", which is both wrong and
+    // unchangeable. Say plainly that no method applies to a mix.
+    if (!method.querySelector("option[value='__mix']")) {
+      const o = document.createElement("option");
+      o.value = "__mix";
+      o.textContent = "Not used — the layered scheme places the data";
+      method.appendChild(o);
+    }
+    method.value = "__mix";
+  } else {
+    const placeholder = method.querySelector("option[value='__mix']");
+    if (placeholder) {
+      placeholder.remove();
+      // Fall back to a real method when returning from a mix.
+      if (!method.value || method.value === "__mix") {
+        method.value = (ALL_METHODS.find((m) => m.id === "lsb_seeded") || ALL_METHODS[0] || {}).id || "";
+      }
+    }
+  }
   $("cmpScheme").innerHTML = composeCovers.length ? describeScheme() : "";
 
   if (composeCovers.length) {

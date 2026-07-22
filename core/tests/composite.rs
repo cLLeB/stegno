@@ -109,6 +109,68 @@ fn robustness_and_compression_survive_a_mix() {
     assert_eq!(reveal_text(&extract_composite(stego, "b".into()).unwrap()), Some("b's note"));
 }
 
+/// Reveal must not depend on the order the covers are handed back.
+///
+/// A split writes each cover a different slice of the frame, so reassembling
+/// them in the wrong sequence yields nothing — and a file picker returns files
+/// in whatever order it likes (alphabetical, by date, by click order), which is
+/// not necessarily the order they were made in. This reported as a flat
+/// "no hidden data found" on files that were perfectly intact.
+#[test]
+fn covers_reveal_in_any_order() {
+    let covers = vec![cover(140, 140, 21), cover(140, 140, 22), cover(140, 140, 23)];
+    let long = "ORDER-".repeat(200);
+    let stego = embed_composite(
+        covers,
+        vec![entry(text(&long), "a"), entry(text("second"), "b")],
+        0,
+        false,
+    )
+    .unwrap();
+    assert_eq!(stego.len(), 3);
+
+    // Every arrangement of the three parts must rebuild both secrets.
+    let idx = [
+        [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0],
+    ];
+    for order in idx {
+        let shuffled: Vec<ByteChunk> = order.iter().map(|&i| stego[i].clone()).collect();
+        assert_eq!(
+            reveal_text(&extract_composite(shuffled.clone(), "a".into()).unwrap()),
+            Some(long.as_str()),
+            "order {order:?} failed for the first secret"
+        );
+        assert_eq!(
+            reveal_text(&extract_composite(shuffled, "b".into()).unwrap()),
+            Some("second"),
+            "order {order:?} failed for the second secret"
+        );
+    }
+}
+
+#[test]
+fn a_missing_part_still_reveals_nothing_whatever_the_order() {
+    // Order-independence must not weaken the all-parts-required guarantee.
+    let covers = vec![cover(140, 140, 31), cover(140, 140, 32), cover(140, 140, 33)];
+    let long = "NEEDED-".repeat(200);
+    let stego = embed_composite(covers, vec![entry(text(&long), "k")], 0, false).unwrap();
+    for drop in 0..3 {
+        let partial: Vec<ByteChunk> = stego
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != drop)
+            .map(|(_, c)| c.clone())
+            .collect();
+        assert!(
+            matches!(
+                extract_composite(partial, "k".into()).unwrap(),
+                Revealed::None
+            ),
+            "dropping part {drop} must not rebuild"
+        );
+    }
+}
+
 #[test]
 fn capacity_grows_with_covers_and_shrinks_with_entries() {
     let one = vec![cover(200, 200, 0)];

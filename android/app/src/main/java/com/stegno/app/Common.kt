@@ -249,7 +249,14 @@ internal fun MethodDropdown(
     var expanded by remember { mutableStateOf(false) }
     fun caption(m: uniffi.stegno_core.MethodInfo) =
         if (showMedia) "${m.displayName} · ${m.media.lowercase()}" else m.displayName
-    val label = methods.firstOrNull { it.id == selected }?.let(::caption) ?: selected
+    // While disabled, naming the last single-hide method reads as "your PDF will
+    // be hidden with Photo" — wrong, and the user cannot change it. A mix has no
+    // method, so say that rather than showing a stale one.
+    val label = if (!enabled) {
+        "Not used — the layered scheme places the data"
+    } else {
+        methods.firstOrNull { it.id == selected }?.let(::caption) ?: selected
+    }
     ExposedDropdownMenuBox(expanded = expanded && enabled, onExpandedChange = { if (enabled) expanded = it }) {
         OutlinedTextField(
             value = label, onValueChange = {}, readOnly = true, enabled = enabled,

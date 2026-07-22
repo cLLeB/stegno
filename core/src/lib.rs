@@ -470,10 +470,16 @@ pub fn embed_composite(
 
 /// Reveal the one entry a `passphrase` unlocks from a set of composite covers.
 ///
-/// Pass every cover that was produced together, in the same order. Tries each
-/// plausible entry count and index until the passphrase decrypts a frame; the
-/// AES-GCM tag makes a false match negligible. Returns `Revealed::None` when
-/// nothing matches (wrong passphrase, or a cover is missing).
+/// Pass every cover that was produced together. Order does **not** matter: a
+/// split writes each cover a different slice of the frame, so reassembling them
+/// in the wrong sequence yields nothing, and a file picker hands files back in
+/// whatever order it likes — alphabetical, by date, by selection. Rather than
+/// making that the user's problem, the reassembly order is searched.
+///
+/// The search is bounded: the given order first (the common case, and free),
+/// then permutations while the cover count is small enough for that to be
+/// cheap. Each attempt reads an 11-byte header before committing to anything,
+/// so a wrong ordering costs almost nothing.
 #[uniffi::export]
 pub fn extract_composite(
     stegos: Vec<ByteChunk>,
@@ -482,9 +488,62 @@ pub fn extract_composite(
     if stegos.is_empty() {
         return Ok(Revealed::None);
     }
-    let carriers = stegos
+    let n = stegos.len();
+    // As given.
+    if let Some(rev) = extract_composite_ordered(&stegos, &passphrase, &(0..n).collect::<Vec<_>>())?
+    {
+        return Ok(rev);
+    }
+    // Then every other arrangement, while that stays a handful of cheap probes.
+    // 4! = 24; beyond that the search would cost more than it saves, and a
+    // caller with that many parts can keep them in order.
+    if n > 1 && n <= 4 {
+        for order in permutations(n) {
+            if order.iter().enumerate().all(|(i, &j)| i == j) {
+                continue; // already tried
+            }
+            if let Some(rev) = extract_composite_ordered(&stegos, &passphrase, &order)? {
+                return Ok(rev);
+            }
+        }
+    }
+    Ok(Revealed::None)
+}
+
+/// Every ordering of `0..n`, smallest count first (Heap's algorithm).
+fn permutations(n: usize) -> Vec<Vec<usize>> {
+    let mut out = Vec::new();
+    let mut cur: Vec<usize> = (0..n).collect();
+    let mut c = vec![0usize; n];
+    out.push(cur.clone());
+    let mut i = 0;
+    while i < n {
+        if c[i] < i {
+            if i % 2 == 0 {
+                cur.swap(0, i);
+            } else {
+                cur.swap(c[i], i);
+            }
+            out.push(cur.clone());
+            c[i] += 1;
+            i = 0;
+        } else {
+            c[i] = 0;
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Try one specific reassembly order. `Ok(None)` means "not this arrangement".
+fn extract_composite_ordered(
+    stegos: &[ByteChunk],
+    passphrase: &str,
+    order: &[usize],
+) -> Result<Option<Revealed>, StegnoError> {
+    let carriers = order
         .iter()
-        .map(|c| carrier::open(&c.bytes))
+        .map(|&i| carrier::open(&stegos[i].bytes))
         .collect::<Result<Vec<_>, _>>()?;
     // Probing 36 layouts below would otherwise rebuild each master ranking 36
     // times; on a large cover that alone dominates the reveal.
@@ -525,13 +584,13 @@ pub fn extract_composite(
                 frame.extend_from_slice(&carrier::read_bytes_n(c.as_ref(), r, size));
             }
             if frame.len() == total {
-                if let Some(rev) = decode_frame(&frame, &passphrase)? {
-                    return Ok(rev);
+                if let Some(rev) = decode_frame(&frame, passphrase)? {
+                    return Ok(Some(rev));
                 }
             }
         }
     }
-    Ok(Revealed::None)
+    Ok(None)
 }
 
 /// Usable bytes for **one entry** when `entry_count` entries share `covers`

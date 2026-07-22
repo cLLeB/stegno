@@ -290,11 +290,17 @@ export function HideTab({ methods }: { methods: MethodInfo[] }) {
 
         <div className={single ? "" : "inactive"}>
           <label>Method</label>
+          {/* Showing the last single-hide method while it is disabled reads as
+              "your PDF will be hidden with Photo" — wrong, and unchangeable.
+              A mix has no method, so say that instead of naming one. */}
           <select
-            value={method}
+            value={single ? method : "__mix"}
             disabled={!single}
             onChange={(e) => { setMethodIsAuto(false); setMethod(e.target.value); }}
           >
+            {!single && (
+              <option value="__mix">Not used — the layered scheme places the data</option>
+            )}
             {methods.map((m) => (
               <option key={m.id} value={m.id}>{m.displayName} · {m.media.toLowerCase()}</option>
             ))}
